@@ -1,0 +1,99 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+[
+
+**** conversationId: 1919768850704564224-1922160125428547584 ****
+
+  {
+    "dmConversation" : {
+      "conversationId" : "2345678901234567890-1234567890123456789",
+      "messages" : [
+        {
+          "messageCreate" : {
+            "id" : "3456789012345678901",
+            "senderId" : "2345678901234567890",
+            "recipientId" : "1234567890123456789",
+            "text" : "MSG 1: REMOVED FOR PRIVACY",
+            "createdAt" : "2025-05-13T15:16:04.857Z",
+            "mediaUrls" : [ ],
+            "reactions" : [ ],
+            "urls" : [ ],
+            "editHistory" : [ ]
+          }
+        },
+        {
+          "messageCreate" : {
+            "id" : "1922309394148057285",
+            "senderId" : "2345678901234567890",
+            "recipientId" : "1234567890123456789",
+            "text" : "MSG 2: REMOVED FOR PRIVACY",
+            "createdAt" : "2025-05-13T15:14:09.080Z",
+            "mediaUrls" : [ ],
+            "reactions" : [ ],
+            "urls" : [ ],
+            "editHistory" : [ ]
+          }
+        },
+		{
+          "messageCreate" : {
+            "id" : "4567890123456789012",
+            "senderId" : "2345678901234567890",
+            "recipientId" : "1234567890123456789",
+            "text" : " https://t.co/G7zUzP8kd",
+            "createdAt" : "2025-05-13T14:58:37.934Z",
+            "mediaUrls" : [
+              "https://ton.twitter.com/dm/2345678901234567890/5678901234567890127/I5j7I8Mln.jpg"
+            ],
+            "reactions" : [ ],
+            "urls" : [
+              {
+                "url" : "https://t.co/I5j7I8Mln",
+                "expanded" : "https://twitter.com/messages/media/5678901234567890127",
+                "display" : "pic.twitter.com/I5j7I8Mln"
+              }
+            ],
+            "editHistory" : [ ]
+          }
+        },
+      ]
+    }
+  }
+  
+**** conversationId: 187746982-1234567890123456789 ****
+,
+  {
+    "dmConversation" : {
+      "conversationId" : "832409872-1922160125428547584",
+      "messages" : [
+        {
+          "messageCreate" : {
+            "id" : "836659289q374923723",
+            "senderId" : "1234567890123456789",
+            "recipientId" : "832409872",
+            "text" : "MSG 3: Removed for privacy",
+            "createdAt" : "2025-05-13T05:47:44.437Z",
+            "mediaUrls" : [ ],
+            "reactions" : [ ],
+            "urls" : [ ],
+            "editHistory" : [ ]
+          }
+        }
+      ]
+    }
+  }
+]
+-----BEGIN PGP SIGNATURE-----
+Version: BCPG v1.70
+
+mDMEXEcE6RYJKwYBBAHaRw8BAQdArjWwk3FAqyiFbFBKT4TzXcVBqPTB3gmzlC/U
+b7O1u120JkFsaWNlIExvdmVsYWNlIDxhbGljZUBvcGVucGdwLmV4YW1wbGU+iJAE
+ExYIADgCGwMFCwkIBwIGFQoJCAsCBBYCAwECHgECF4AWIQTrhbtfozp14V6UTmPy
+MVUMT0fjjgUCXaWfOgAKCRDyMVUMT0fjjukrAPoDnHBSogOmsHOsd9qGsiZpgRnO
+dypvbm+QtXZqth9rvwD9HcDC0tC+PHAsO7OTh1S1TC9RiJsvawAfCPaQZoed8gK4
+OARcRwTpEgorBgEEAZdVAQUBAQdAQv8GIa2rSTzgqbXCpDDYMiKRVitCsy203x3s
+E9+eviIDAQgHiHgEGBYIACAWIQTrhbtfozp14V6UTmPyMVUMT0fjjgUCXEcE6QIb
+DAAKCRDyMVUMT0fjjlnQAQDFHUs6TIcxrNTtEZFjUFm1M0PJ1Dng/cDW4xN80fsn
+0QEA22Kr7VkCjeAEC08VSTeV+QFsmz55/lntWkwYWhmvOgE=
+=iIGO
+-----END PGP SIGNATURE-----
