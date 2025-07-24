@@ -1,0 +1,29 @@
+msg_id,sender_jid,receiver_jid,chat_type,msg,ip,port,sent_at
+cdccbba4-6920-4253-b0a0-675cf5385e96,ironman_ve7,1273871234872_g,groupchat,Hello world!,192.168.123,47608,2024-05-06T05:49:37Z
+e9bfef54-a3c4-406d-83b7-76d68db114f7,ironman_ve7,1273871234872_g,groupchat,Same here,192.168.123,47608,2024-05-06T05:54:12Z
+d450e1ec-bfbf-45b8-bca1-b86e213079f4,ironman_ve7,1273871234872_g,groupchat,Gaming monet,192.168.123,47608,2024-05-06T05:49:37Z
+8a313d67-f599-4234-b577-8b4acaebd7dc,ironman_ve7,1273871234872_g,groupchat,I like money,192.168.123,47608,2024-05-06T05:54:12Z
+69333cc5-8fa7-47ad-9ae9-91ca9a5cd0c1,ironman_ve7,1100739857649_g,groupchat,Mr krabs,192.168.123,47608,2024-05-06T05:49:37Z
+0a3aadf4-aa88-4b8c-bb42-0660558fb2d1,ironman_ve7,1273871234872_g,groupchat,Best place to buy diamons,192.168.123,47608,2024-05-06T05:54:12Z
+0b55c399-974b-4b69-8e42-5bceb55e51bd,ironman_ve7,1100739857649_g,groupchat,I love gold,192.168.123,47608,2024-05-06T05:49:37Z
+3b405db6-695a-4b72-a022-57bd7c00f3de,ironman_ve7,1273871234872_g,groupchat,Me too,192.168.123,47608,2024-05-06T05:54:12Z
+062d341b-c255-4a84-851d-ae7d6328d887,greatman_kvy,ironman_ve7,chat,Whats the most based avenger,103.123.73.233,9520,2024-05-06T04:49:34Z
+b1798856-ee67-44cb-8125-d88cb29f91b9,greatman_kvy,ironman_ve7,chat,cause memes,103.123.73.233,9520,2024-05-06T04:49:47Z
+3029b7a1-d6eb-4ddb-b528-d76221b215fa,ironman_ve7,greatman_kvy,chat,avengers assemble,192.168.123,47598,2024-05-06T04:49:52Z
+60b108ea-cd13-4dab-b9f2-8fdca13a72c4,ironman_ve7,greatman_kvy,chat,Yaaaaaas,192.168.123,47598,2024-05-06T04:49:56Z
+0ae6d647-aafa-487d-8aa6-aa372bc4495e,ironman_ve7,greatman_kvy,chat,I like the man of iron,192.168.123,47598,2024-05-06T04:50:04Z
+8b8df478-d1f2-41b9-85ab-9c6a6a908efd,ironman_ve7,greatman_kvy,chat,He’s made of iron,192.168.123,47598,2024-05-06T04:51:15Z
+9283f44b-597d-4d9a-b37f-a1b009a715f4,greatman_kvy,ironman_ve7,chat,This is so true,103.123.73.233,9520,2024-05-06T04:51:32Z
+a9154920-b2a9-437a-bcaa-b7806f1a2ce9,greatman_kvy,ironman_ve7,chat,I wonder what tin man is made of,103.123.73.233,9520,2024-05-06T04:51:34Z
+1d76d075-5c5c-4c12-862c-dbab60210f6a,ironman_ve7,greatman_kvy,chat,Straw prolly,192.168.123,47598,2024-05-06T04:51:39Z
+b6946220-5e2b-470b-8297-304f1ef303ef,ironman_ve7,greatman_kvy,chat,And the lion is made out of lion,192.168.123,47598,2024-05-06T04:51:47Z
+64429963-a525-431b-a37a-b2698907cf79,ironman_ve7,greatman_kvy,chat,I looked it up,192.168.123,47598,2024-05-06T04:51:50Z
+138783d4-b10e-4add-9823-61dc374cef44,greatman_kvy,ironman_ve7,chat,No,103.123.73.233,9520,2024-05-06T04:51:53Z
+8dfeda9f-b7b2-4902-a852-fdae694d31c1,ironman_ve7,greatman_kvy,chat,Did to,192.168.123,47598,2024-05-06T04:51:57Z
+629d2e05-12ed-4d24-8cfc-764a57f5db3d,ironman_ve7,greatman_kvy,chat,It says lion,192.168.123,47598,2024-05-06T04:52:00Z
+3f218ab3-23d9-4aab-94e4-21c4b32ef87a,greatman_kvy,ironman_ve7,chat,Hmmm,103.123.73.233,9520,2024-05-06T04:52:09Z
+dee699e1-ca3c-4250-9e03-ae72408714df,ironman_ve7,thestealers_v58,chat,Football is cool,173.68.143.134,54958,2024-05-06T06:39:12Z
+2c286402-6783-4a13-b8a1-d9da77093562,thestealers_v58i,ronman_ve7,chat,Am I football,128.84.98.87,40406,2024-05-06T06:39:32Z
+31dd2687-5e5a-46ee-a545-3f716fd59642,ironman_ve7,thestealers_v58,chat,You are a football,173.68.143.134,54958,2024-05-06T06:39:55Z
+67715e35-ca2e-4954-b81c-7985b97759dc,ironman_ve7,thestealers_v58,chat,Thansgiving is a great holidty,173.68.143.134,39336,2024-05-06T06:44:31Z
+8358ac48-aae7-4366-8ebe-a63514d9067f,ironman_ve7,thestealers_v58,chat,It really is,173.68.143.134,39336,2024-05-06T06:44:43Z
