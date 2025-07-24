@@ -1,0 +1,1 @@
+python -m PyInstaller --onefile --windowed --hidden-import="weasyprint" --hidden-import="reportlab" --hidden-import="parsers.base_parser" --hidden-import="parsers.kik_messenger_parser" --hidden-import="parsers.parser_manager" --hidden-import="parsers.twitter_dm_parser" --add-data "parsers;parsers" message_viewer.py
