@@ -10,9 +10,9 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.enums import TA_LEFT, TA_RIGHT
-from reportlab.lib.colors import Color
+from reportlab.lib.colors import Color, black
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
@@ -724,10 +724,7 @@ class ModernMessageViewer:
             # Define page layout
             left_margin = 0.5 * inch
             right_margin = 0.5 * inch
-            page_width = letter[0]
-            drawable_width = page_width - left_margin - right_margin
-            indent_val = drawable_width / 2
-
+            
             doc = SimpleDocTemplate(file_path, pagesize=letter,
                                     leftMargin=left_margin, rightMargin=right_margin,
                                     topMargin=0.5*inch, bottomMargin=0.5*inch)
@@ -762,7 +759,10 @@ class ModernMessageViewer:
                 wordWrap='CJK',
                 borderRadius=8,
                 borderWidth=1,
-                padding=(8, 8, 8, 8)
+                paddingLeft=18,
+                paddingRight=8,
+                paddingTop=8,
+                paddingBottom=8
             )
 
             # Sent message style
@@ -770,8 +770,6 @@ class ModernMessageViewer:
                 name='Sent',
                 parent=base_message_style,
                 alignment=TA_LEFT,
-                leftIndent=indent_val,
-                rightIndent=0,
                 backColor=hex_to_color(self.colors['bubble_sent']),
                 textColor=hex_to_color(self.colors['text_primary']),
                 borderColor=hex_to_color(self.colors['bubble_sent']),
@@ -782,8 +780,6 @@ class ModernMessageViewer:
                 name='Received',
                 parent=base_message_style,
                 alignment=TA_LEFT,
-                leftIndent=0,
-                rightIndent=indent_val,
                 backColor=hex_to_color(self.colors['bubble_received']),
                 textColor=hex_to_color(self.colors['text_primary']),
                 borderColor=hex_to_color(self.colors['bubble_received']),
@@ -800,16 +796,17 @@ class ModernMessageViewer:
                 spaceAfter=10,
             )
 
-            # --- Build Story ---
+            # --- Build Story using a Table ---
             primary_sender = self.current_parser.get_primary_sender(self.current_conversation)
-
+            
+            table_data = []
             for message in self.current_conversation.messages:
                 is_sent = (message.sender_id == primary_sender)
                 
                 # Message bubble
-                text = message.text.replace('\n', '<br/>')
+                # Prepend a non-breaking space to fix first-letter clipping
+                text = f"&nbsp;&nbsp;&nbsp;{message.text.replace('\n', '<br/>')}"
                 p = Paragraph(text, style_sent if is_sent else style_received)
-                story.append(p)
 
                 # Timestamp
                 formatted_time = self.current_parser.format_timestamp(message.timestamp, format_type='long')
@@ -818,7 +815,22 @@ class ModernMessageViewer:
                     alignment=TA_RIGHT if is_sent else TA_LEFT
                 )
                 timestamp_p = Paragraph(f"{formatted_time} • Line {message.line_number}", ts_align_style)
-                story.append(timestamp_p)
+                
+                # Arrange in columns
+                if is_sent:
+                    table_data.append(('', [p, timestamp_p]))
+                else:
+                    table_data.append(([p, timestamp_p], ''))
+
+            # Create the table
+            table = Table(table_data, colWidths=['50%', '50%'])
+            table.setStyle(TableStyle([
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+            ]))
+            
+            story.append(table)
 
             # --- Generate PDF ---
             doc.build(story)
