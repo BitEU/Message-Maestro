@@ -35,6 +35,8 @@ class ModernChatViewer:
         self.current_conversation = None
         self.file_lines = []
         self.current_file = None
+        self.selected_conv_item = None  # Track selected conversation item
+        self.conv_items = []  # List of conversation items for keyboard navigation
         
         # Configure root window
         self.root.configure(bg=self.colors['bg_primary'])
@@ -43,6 +45,9 @@ class ModernChatViewer:
         self.setup_fonts()
         self.setup_styles()
         self.create_ui()
+        
+        # Bind keyboard events
+        self.setup_keyboard_navigation()
         
         # Load default file if exists
         if os.path.exists('template.txt'):
@@ -71,6 +76,79 @@ class ModernChatViewer:
                        background=self.colors['bg_tertiary'],
                        foreground=self.colors['text_secondary'],
                        font=self.fonts['status'])
+    
+    def setup_keyboard_navigation(self):
+        """Setup keyboard navigation for conversation list"""
+        def on_key_press(event):
+            if not self.conv_items:
+                return
+            
+            if event.keysym == 'Down':
+                self.navigate_conversations(1)
+                return 'break'
+            elif event.keysym == 'Up':
+                self.navigate_conversations(-1) 
+                return 'break'
+            elif event.keysym == 'Return':
+                if self.selected_conv_item:
+                    conv_id = self.selected_conv_item.conv_id
+                    self.select_conversation(conv_id, self.selected_conv_item)
+                return 'break'
+        
+        # Bind to root window so it works globally
+        self.root.bind('<Key>', on_key_press)
+        self.root.focus_set()  # Make sure root can receive focus
+    
+    def navigate_conversations(self, direction):
+        """Navigate conversations with arrow keys"""
+        if not self.conv_items:
+            return
+        
+        current_index = 0
+        if self.selected_conv_item:
+            try:
+                current_index = self.conv_items.index(self.selected_conv_item)
+            except ValueError:
+                current_index = 0
+        
+        # Calculate new index
+        new_index = current_index + direction
+        new_index = max(0, min(len(self.conv_items) - 1, new_index))
+        
+        # Select new conversation
+        new_item = self.conv_items[new_index]
+        conv_id = new_item.conv_id
+        self.select_conversation(conv_id, new_item)
+        
+        # Scroll to make sure selected item is visible
+        self.scroll_to_conversation(new_item)
+    
+    def scroll_to_conversation(self, conv_item):
+        """Scroll conversation list to make the selected item visible"""
+        # Get the position of the conversation item
+        canvas_height = self.conv_canvas.winfo_height()
+        scroll_region = self.conv_canvas.bbox("all")
+        
+        if not scroll_region:
+            return
+        
+        # Get item position relative to the scrollable frame
+        item_y = conv_item.winfo_y()
+        item_height = conv_item.winfo_height()
+        
+        # Get current view
+        view_top = self.conv_canvas.canvasy(0)
+        view_bottom = view_top + canvas_height
+        
+        # Check if item is visible
+        if item_y < view_top:
+            # Item is above view, scroll up
+            fraction = item_y / scroll_region[3]
+            self.conv_canvas.yview_moveto(fraction)
+        elif item_y + item_height > view_bottom:
+            # Item is below view, scroll down
+            fraction = (item_y + item_height - canvas_height) / scroll_region[3]
+            self.conv_canvas.yview_moveto(fraction)
     
     def create_ui(self):
         # Main container
@@ -137,16 +215,46 @@ class ModernChatViewer:
         list_container = tk.Frame(sidebar, bg=self.colors['bg_secondary'])
         list_container.pack(fill=tk.BOTH, expand=True, padx=10)
         
-        # Scrollable frame for conversations
-        self.conv_canvas = Canvas(list_container, bg=self.colors['bg_secondary'], highlightthickness=0)
-        scrollbar = Scrollbar(list_container, orient="vertical", command=self.conv_canvas.yview)
+        # Create scrollable frame properly
+        self.create_scrollable_frame(list_container)
+    
+    def create_scrollable_frame(self, parent):
+        # Canvas for scrolling
+        self.conv_canvas = Canvas(parent, bg=self.colors['bg_secondary'], highlightthickness=0, bd=0)
+        
+        # Scrollbar
+        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=self.conv_canvas.yview)
+        
+        # Frame inside canvas
         self.conv_frame = tk.Frame(self.conv_canvas, bg=self.colors['bg_secondary'])
         
-        self.conv_frame.bind("<Configure>", lambda e: self.conv_canvas.configure(scrollregion=self.conv_canvas.bbox("all")))
+        # Create window in canvas
+        self.canvas_window = self.conv_canvas.create_window((0, 0), window=self.conv_frame, anchor="nw")
         
-        self.conv_canvas.create_window((0, 0), window=self.conv_frame, anchor="nw")
+        # Configure canvas
         self.conv_canvas.configure(yscrollcommand=scrollbar.set)
         
+        # Update scroll region when frame changes
+        def configure_scroll_region(event=None):
+            self.conv_canvas.configure(scrollregion=self.conv_canvas.bbox("all"))
+            # Update window width to match canvas
+            canvas_width = self.conv_canvas.winfo_width()
+            self.conv_canvas.itemconfig(self.canvas_window, width=canvas_width)
+        
+        self.conv_frame.bind("<Configure>", configure_scroll_region)
+        self.conv_canvas.bind("<Configure>", lambda e: self.conv_canvas.itemconfig(self.canvas_window, width=e.width))
+        
+        # Mouse wheel scrolling
+        def on_mousewheel(event):
+            if self.conv_canvas.winfo_exists():
+                self.conv_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        
+        # Bind mousewheel to canvas and all children
+        self.conv_canvas.bind("<MouseWheel>", on_mousewheel)
+        self.conv_canvas.bind("<Button-4>", lambda e: self.conv_canvas.yview_scroll(-1, "units"))
+        self.conv_canvas.bind("<Button-5>", lambda e: self.conv_canvas.yview_scroll(1, "units"))
+        
+        # Pack widgets
         self.conv_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
     
@@ -173,13 +281,28 @@ class ModernChatViewer:
         
         # Create scrollable message area
         self.msg_canvas = Canvas(self.msg_container, bg=self.colors['bg_primary'], highlightthickness=0)
-        msg_scrollbar = Scrollbar(self.msg_container, orient="vertical", command=self.msg_canvas.yview)
+        msg_scrollbar = ttk.Scrollbar(self.msg_container, orient="vertical", command=self.msg_canvas.yview)
         self.msg_frame = tk.Frame(self.msg_canvas, bg=self.colors['bg_primary'])
         
-        self.msg_frame.bind("<Configure>", lambda e: self.msg_canvas.configure(scrollregion=self.msg_canvas.bbox("all")))
+        self.msg_window = self.msg_canvas.create_window((0, 0), window=self.msg_frame, anchor="nw")
         
-        self.msg_canvas.create_window((0, 0), window=self.msg_frame, anchor="nw")
+        def configure_msg_scroll(event=None):
+            self.msg_canvas.configure(scrollregion=self.msg_canvas.bbox("all"))
+            # Update window width
+            canvas_width = self.msg_canvas.winfo_width()
+            self.msg_canvas.itemconfig(self.msg_window, width=canvas_width)
+        
+        self.msg_frame.bind("<Configure>", configure_msg_scroll)
+        self.msg_canvas.bind("<Configure>", lambda e: self.msg_canvas.itemconfig(self.msg_window, width=e.width))
+        
         self.msg_canvas.configure(yscrollcommand=msg_scrollbar.set)
+        
+        # Mouse wheel for messages
+        def on_msg_mousewheel(event):
+            if self.msg_canvas.winfo_exists():
+                self.msg_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        
+        self.msg_canvas.bind("<MouseWheel>", on_msg_mousewheel)
         
         self.msg_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         msg_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
@@ -217,6 +340,9 @@ class ModernChatViewer:
         conv_item = tk.Frame(self.conv_frame, bg=self.colors['bg_secondary'], cursor='hand2')
         conv_item.pack(fill=tk.X, padx=5, pady=2)
         
+        # Store reference to conversation ID
+        conv_item.conv_id = conv_id
+        
         # Inner frame for padding and hover effect
         inner_frame = tk.Frame(conv_item, bg=self.colors['bg_secondary'])
         inner_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
@@ -252,24 +378,29 @@ class ModernChatViewer:
         
         # Bind hover effects
         def on_enter(e):
-            conv_item.configure(bg=self.colors['hover'])
-            inner_frame.configure(bg=self.colors['hover'])
-            for widget in inner_frame.winfo_children():
-                widget.configure(bg=self.colors['hover'])
+            if conv_item != self.selected_conv_item:
+                conv_item.configure(bg=self.colors['hover'])
+                inner_frame.configure(bg=self.colors['hover'])
+                for widget in inner_frame.winfo_children():
+                    widget.configure(bg=self.colors['hover'])
         
         def on_leave(e):
-            conv_item.configure(bg=self.colors['bg_secondary'])
-            inner_frame.configure(bg=self.colors['bg_secondary'])
-            for widget in inner_frame.winfo_children():
-                widget.configure(bg=self.colors['bg_secondary'])
+            if conv_item != self.selected_conv_item:
+                conv_item.configure(bg=self.colors['bg_secondary'])
+                inner_frame.configure(bg=self.colors['bg_secondary'])
+                for widget in inner_frame.winfo_children():
+                    widget.configure(bg=self.colors['bg_secondary'])
         
         def on_click(e):
-            self.select_conversation(conv_id)
+            self.select_conversation(conv_id, conv_item)
         
         for widget in [conv_item, inner_frame] + list(inner_frame.winfo_children()):
             widget.bind('<Enter>', on_enter)
             widget.bind('<Leave>', on_leave)
             widget.bind('<Button-1>', on_click)
+        
+        # Add to navigation list
+        self.conv_items.append(conv_item)
         
         return conv_item
     
@@ -282,34 +413,40 @@ class ModernChatViewer:
         bubble_frame = tk.Frame(msg_container, bg=self.colors['bg_primary'])
         
         if is_sent:
-            bubble_frame.pack(anchor='e', padx=(100, 0))
+            bubble_frame.pack(anchor='e')
         else:
-            bubble_frame.pack(anchor='w', padx=(0, 100))
+            bubble_frame.pack(anchor='w')
         
         # Message bubble
         bubble_bg = self.colors['bubble_sent'] if is_sent else self.colors['bubble_received']
         
         bubble = tk.Frame(bubble_frame, bg=bubble_bg)
-        bubble.pack()
+        bubble.pack(fill=tk.X, ipadx=5, ipady=3)
+        
+        # Create rounded corner effect with custom padding
+        inner_bubble = tk.Frame(bubble, bg=bubble_bg)
+        inner_bubble.pack(padx=2, pady=2)
         
         # Message text
-        msg_label = tk.Label(bubble,
+        msg_label = tk.Label(inner_bubble,
                             text=text,
                             bg=bubble_bg,
                             fg='white',
                             font=self.fonts['message'],
-                            wraplength=400,
-                            justify='left')
-        msg_label.pack(padx=15, pady=10)
+                            wraplength=350,
+                            justify='left',
+                            anchor='w')
+        msg_label.pack(padx=12, pady=8, anchor='w')
         
         # Media indicator
         if has_media:
-            media_label = tk.Label(bubble,
+            media_label = tk.Label(inner_bubble,
                                   text="📎 Media attached",
                                   bg=bubble_bg,
                                   fg='#cccccc',
-                                  font=('Segoe UI', 8))
-            media_label.pack(padx=15, pady=(0, 10))
+                                  font=('Segoe UI', 8),
+                                  anchor='w')
+            media_label.pack(padx=12, pady=(0, 8), anchor='w')
         
         # Timestamp and line info
         info_frame = tk.Frame(bubble_frame, bg=self.colors['bg_primary'])
@@ -322,9 +459,6 @@ class ModernChatViewer:
                              fg=self.colors['text_secondary'],
                              font=self.fonts['timestamp'])
         info_label.pack()
-        
-        # Add rounded corners effect (visual trick)
-        bubble.configure(relief='flat', bd=0)
     
     def open_file(self):
         file_path = filedialog.askopenfilename(
@@ -346,6 +480,11 @@ class ModernChatViewer:
             # Clear conversation list
             for widget in self.conv_frame.winfo_children():
                 widget.destroy()
+            
+            # Reset selected conversation and items list
+            self.selected_conv_item = None
+            self.current_conversation = None
+            self.conv_items = []
             
             # Parse conversations
             pgp_start = None
@@ -439,8 +578,28 @@ class ModernChatViewer:
                 conv_info['participants'],
                 conv_info['line_num']
             )
+        
+        # Update scroll region after adding all items
+        self.conv_canvas.configure(scrollregion=self.conv_canvas.bbox("all"))
     
-    def select_conversation(self, conv_id):
+    def select_conversation(self, conv_id, conv_item):
+        # Update selected item visual state
+        if self.selected_conv_item:
+            # Reset previous selection
+            self.selected_conv_item.configure(bg=self.colors['bg_secondary'])
+            inner = self.selected_conv_item.winfo_children()[0]
+            inner.configure(bg=self.colors['bg_secondary'])
+            for widget in inner.winfo_children():
+                widget.configure(bg=self.colors['bg_secondary'])
+        
+        # Highlight new selection
+        self.selected_conv_item = conv_item
+        conv_item.configure(bg=self.colors['selected'])
+        inner = conv_item.winfo_children()[0]
+        inner.configure(bg=self.colors['selected'])
+        for widget in inner.winfo_children():
+            widget.configure(bg=self.colors['selected'])
+        
         if conv_id in self.conversations:
             self.current_conversation = conv_id
             self.display_conversation()
@@ -513,8 +672,9 @@ class ModernChatViewer:
                     is_sent = (sender == primary_sender)
                     self.create_message_bubble(text, formatted_time, msg_line, is_sent, has_media)
         
-        # Scroll to bottom
+        # Update scroll region and scroll to bottom
         self.msg_canvas.update_idletasks()
+        self.msg_canvas.configure(scrollregion=self.msg_canvas.bbox("all"))
         self.msg_canvas.yview_moveto(1.0)
     
     def add_date_separator(self):
