@@ -722,11 +722,8 @@ class ModernMessageViewer:
 
         try:
             # Define page layout
-            left_margin = 0.5 * inch
-            right_margin = 0.5 * inch
-            
             doc = SimpleDocTemplate(file_path, pagesize=letter,
-                                    leftMargin=left_margin, rightMargin=right_margin,
+                                    leftMargin=0.5*inch, rightMargin=0.5*inch,
                                     topMargin=0.5*inch, bottomMargin=0.5*inch)
             
             styles = getSampleStyleSheet()
@@ -749,40 +746,15 @@ class ModernMessageViewer:
                     int(hex_val[5:7], 16) / 255.0
                 )
 
-            # Base message style
-            base_message_style = ParagraphStyle(
-                name='BaseMessage',
+            # Base message style (for text properties only)
+            message_text_style = ParagraphStyle(
+                name='MessageText',
                 parent=styles['Normal'],
                 fontName=self.pdf_font_family,
                 fontSize=self.fonts['message'].cget('size'),
                 leading=14,
                 wordWrap='CJK',
-                borderRadius=8,
-                borderWidth=1,
-                paddingLeft=18,
-                paddingRight=8,
-                paddingTop=8,
-                paddingBottom=8
-            )
-
-            # Sent message style
-            style_sent = ParagraphStyle(
-                name='Sent',
-                parent=base_message_style,
-                alignment=TA_LEFT,
-                backColor=hex_to_color(self.colors['bubble_sent']),
                 textColor=hex_to_color(self.colors['text_primary']),
-                borderColor=hex_to_color(self.colors['bubble_sent']),
-            )
-
-            # Received message style
-            style_received = ParagraphStyle(
-                name='Received',
-                parent=base_message_style,
-                alignment=TA_LEFT,
-                backColor=hex_to_color(self.colors['bubble_received']),
-                textColor=hex_to_color(self.colors['text_primary']),
-                borderColor=hex_to_color(self.colors['bubble_received']),
             )
 
             # Timestamp style
@@ -803,10 +775,31 @@ class ModernMessageViewer:
             for message in self.current_conversation.messages:
                 is_sent = (message.sender_id == primary_sender)
                 
-                # Message bubble
-                # Prepend a non-breaking space to fix first-letter clipping
-                text = f"&nbsp;&nbsp;&nbsp;{message.text.replace('\n', '<br/>')}"
-                p = Paragraph(text, style_sent if is_sent else style_received)
+                # Create the message paragraph
+                text = message.text.replace('\n', '<br/>')
+                p = Paragraph(text, message_text_style)
+
+                # Create the bubble for the paragraph using a nested Table
+                bubble_color = hex_to_color(self.colors['bubble_sent'] if is_sent else self.colors['bubble_received'])
+                
+                bubble_style = TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, -1), bubble_color),
+                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                    # --- THIS IS THE PADDING THAT WILL NOW WORK ---
+                    ('LEFTPADDING', (0, 0), (-1, -1), 10),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+                    ('TOPPADDING', (0, 0), (-1, -1), 8),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+                    # Use 'ROUND' for rounded corners, a custom feature of some ReportLab versions/extensions
+                    # If it causes an error, it can be removed.
+                    ('ROUND', (0, 0), (-1, -1), 8), 
+                    ('LINEABOVE', (0,0), (-1,0), 1, bubble_color),
+                    ('LINEBELOW', (0,-1), (-1,-1), 1, bubble_color),
+                    ('LINEBEFORE', (0,0), (0,-1), 1, bubble_color),
+                    ('LINEAFTER', (-1,0), (-1,-1), 1, bubble_color),
+                ])
+                
+                bubble_table = Table([[p]], style=bubble_style)
 
                 # Timestamp
                 formatted_time = self.current_parser.format_timestamp(message.timestamp, format_type='long')
@@ -818,19 +811,18 @@ class ModernMessageViewer:
                 
                 # Arrange in columns
                 if is_sent:
-                    table_data.append(('', [p, timestamp_p]))
+                    table_data.append(('', [bubble_table, timestamp_p]))
                 else:
-                    table_data.append(([p, timestamp_p], ''))
+                    table_data.append(([bubble_table, timestamp_p], ''))
 
-            # Create the table
-            table = Table(table_data, colWidths=['50%', '50%'])
-            table.setStyle(TableStyle([
+            # Create the main table for all messages
+            main_table = Table(table_data, colWidths=['50%', '50%'])
+            main_table.setStyle(TableStyle([
                 ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                ('LEFTPADDING', (0, 0), (-1, -1), 0),
-                ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+                # No padding needed here anymore, it's handled by the bubbles
             ]))
             
-            story.append(table)
+            story.append(main_table)
 
             # --- Generate PDF ---
             doc.build(story)
