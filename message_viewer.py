@@ -372,9 +372,32 @@ class ModernMessageViewer:
         # Mouse wheel for messages
         def on_msg_mousewheel(event):
             if self.msg_canvas.winfo_exists():
-                self.msg_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+                # Get current scroll position
+                top, bottom = self.msg_canvas.yview()
+                scroll_amount = int(-1*(event.delta/120))
+                
+                # Only scroll if there's content to scroll
+                if scroll_amount > 0 and bottom < 1.0:  # Scrolling down
+                    self.msg_canvas.yview_scroll(scroll_amount, "units")
+                elif scroll_amount < 0 and top > 0.0:  # Scrolling up
+                    self.msg_canvas.yview_scroll(scroll_amount, "units")
         
-        self.msg_canvas.bind("<MouseWheel>", on_msg_mousewheel)
+        # Store the mousewheel function for use in other methods
+        self.on_msg_mousewheel = on_msg_mousewheel
+        
+        # Function to recursively bind mousewheel to widget and all children
+        def bind_mousewheel_recursive(widget):
+            widget.bind("<MouseWheel>", on_msg_mousewheel)
+            for child in widget.winfo_children():
+                bind_mousewheel_recursive(child)
+        
+        # Bind mousewheel to canvas, frame, and container
+        bind_mousewheel_recursive(self.msg_canvas)
+        bind_mousewheel_recursive(self.msg_frame)
+        bind_mousewheel_recursive(self.msg_container)
+        
+        # Store the recursive binding function for use when creating new widgets
+        self.bind_mousewheel_recursive = bind_mousewheel_recursive
         
         self.msg_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         msg_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
@@ -685,6 +708,9 @@ class ModernMessageViewer:
                              fg=self.colors['text_secondary'],
                              font=self.fonts['timestamp'])
         info_label.pack()
+        
+        # Bind mousewheel to all message bubble widgets
+        self.bind_mousewheel_recursive(msg_container)
     
     def add_date_separator(self):
         separator_frame = tk.Frame(self.msg_frame, bg=self.colors['bg_primary'])
@@ -705,6 +731,9 @@ class ModernMessageViewer:
         # Line
         line_right = tk.Frame(separator_frame, bg=self.colors['border'], height=1)
         line_right.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        # Bind mousewheel to date separator widgets
+        self.bind_mousewheel_recursive(separator_frame)
 
     def export_to_pdf(self):
         if not self.current_conversation:
