@@ -1361,20 +1361,26 @@ class ModernMessageViewer:
 
     def navigate_search_results(self, direction: int):
         """Navigate through search results in the conversation."""
-        if not self.search_results:
-            if self.conv_search_query.get():
-                self.perform_conv_search()
+        # If no search results, and there's a query, perform the search first.
+        # This handles cases where the conversation was reloaded and search_results became stale.
+        if not self.search_results and self.conv_search_query.get():
+            self.perform_conv_search()
+            # After perform_conv_search, self.search_results will be populated,
+            # and it will call find_next() which will re-enter this function.
+            # So, we can return here.
             return
-        
+
+        # If still no search results after attempting to perform search, or no query, just return.
         if not self.search_results:
             return
 
+        # Clear previous highlight if it exists and is still valid
         if self.last_highlighted_widget and self.last_highlighted_widget.winfo_exists():
             self.last_highlighted_widget.config(relief=tk.FLAT, bd=0)
         self.last_highlighted_widget = None
 
+        # Calculate the new index
         self.current_search_index += direction
-
         if self.current_search_index >= len(self.search_results):
             self.current_search_index = 0
         elif self.current_search_index < 0:
@@ -1382,10 +1388,20 @@ class ModernMessageViewer:
 
         widget_to_show = self.search_results[self.current_search_index]
 
+        # Crucial check: If the widget no longer exists, it means the conversation
+        # was redrawn *after* search_results were populated.
+        # In this case, we need to re-perform the search to get fresh widget references.
+        if not widget_to_show.winfo_exists():
+            self.perform_conv_search()
+            # perform_conv_search will call find_next() which will re-enter this function
+            # with valid widgets. So, we return from this current call.
+            return
+
+        # If we reach here, widget_to_show is a valid widget. Proceed with highlighting and scrolling.
         self.msg_canvas.update_idletasks()
         y = widget_to_show.winfo_y()
         canvas_height = self.msg_canvas.winfo_height()
-        
+
         if canvas_height > 0:
             scroll_region = self.msg_canvas.bbox("all")
             if scroll_region:
