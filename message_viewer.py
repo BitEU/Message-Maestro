@@ -1369,8 +1369,9 @@ class ModernMessageViewer:
         if not self.search_results:
             return
 
-        if self.last_highlighted_widget:
+        if self.last_highlighted_widget and self.last_highlighted_widget.winfo_exists():
             self.last_highlighted_widget.config(relief=tk.FLAT, bd=0)
+        self.last_highlighted_widget = None
 
         self.current_search_index += direction
 
