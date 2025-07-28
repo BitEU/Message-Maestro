@@ -1,12 +1,29 @@
 #!/usr/bin/env python3
 
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, font, colorchooser
+import sys
 import os
 from typing import Dict, List, Optional, Set, Tuple
 import platform
 import json
 import re
+from datetime import datetime
+
+from PyQt6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
+    QLabel, QPushButton, QFrame, QScrollArea, QFileDialog, QMessageBox,
+    QLineEdit, QRadioButton, QButtonGroup, QTextEdit, QMenu, QDialog,
+    QColorDialog, QSplitter, QSizePolicy, QSpacerItem, QGroupBox
+)
+from PyQt6.QtCore import (
+    Qt, QPropertyAnimation, QEasingCurve, pyqtSignal, QTimer, 
+    QRect, QSize, QPoint, pyqtProperty, QParallelAnimationGroup
+)
+from PyQt6.QtGui import (
+    QFont, QFontDatabase, QPalette, QColor, QAction, QKeySequence,
+    QPainter, QPen, QBrush, QLinearGradient, QPixmap, QPainterPath
+)
+from PyQt6.QtOpenGLWidgets import QOpenGLWidget
+from PyQt6.QtOpenGL import QOpenGLFramebufferObject
 
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
@@ -20,6 +37,200 @@ from reportlab.pdfbase.ttfonts import TTFont
 
 from parsers.parser_manager import ParserManager
 from parsers.base_parser import BaseParser, Conversation, Message
+
+
+class GPUAcceleratedScrollArea(QScrollArea):
+    """GPU-accelerated scroll area using OpenGL"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWidgetResizable(True)
+        
+        # Enable OpenGL viewport for GPU acceleration
+        self.gl_widget = QOpenGLWidget()
+        self.setViewport(self.gl_widget)
+        
+        # Enable smooth scrolling
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        
+        # Performance optimizations
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.viewport().setAutoFillBackground(False)
+
+
+class AnimatedButton(QPushButton):
+    """Custom button with hover animations"""
+    def __init__(self, text, parent=None):
+        super().__init__(text, parent)
+        self._animation = QPropertyAnimation(self, b"color")
+        self._animation.setDuration(200)
+        self._animation.setEasingCurve(QEasingCurve.Type.InOutQuad)
+        
+        self._color = QColor("#1d9bf0")
+        self.setMouseTracking(True)
+    
+    def get_color(self):
+        return getattr(self, '_color', QColor("#1d9bf0"))
+    
+    def set_color(self, color):
+        self._color = color
+        self.update()
+    
+    color = pyqtProperty(QColor, get_color, set_color)
+    
+    def enterEvent(self, event):
+        self._animation.setStartValue(self._color)
+        self._animation.setEndValue(QColor("#1a8cd8"))
+        self._animation.start()
+        super().enterEvent(event)
+    
+    def leaveEvent(self, event):
+        self._animation.setStartValue(self._color)
+        self._animation.setEndValue(QColor("#1d9bf0"))
+        self._animation.start()
+        super().leaveEvent(event)
+    
+    def paintEvent(self, event):
+        self.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {self._color.name()};
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 5px;
+                font-weight: 500;
+            }}
+        """)
+        super().paintEvent(event)
+
+
+class MessageBubble(QFrame):
+    """Custom message bubble widget with GPU-accelerated rendering"""
+    contextMenuRequested = pyqtSignal(QPoint, object, str)
+    
+    def __init__(self, message: Message, conversation_id: str, is_sent: bool, 
+                 timestamp: str, tag_info: Dict = None, parent=None):
+        super().__init__(parent)
+        self.message = message
+        self.conversation_id = conversation_id
+        self.is_sent = is_sent
+        self.timestamp = timestamp
+        self.tag_info = tag_info
+        self.is_highlighted = False
+        
+        self.setup_ui()
+        
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 5, 20, 5)
+        
+        # Bubble container
+        bubble_container = QWidget()
+        bubble_layout = QHBoxLayout(bubble_container)
+        bubble_layout.setContentsMargins(0, 0, 0, 0)
+        
+        if self.is_sent:
+            bubble_layout.addStretch()
+        
+        # Actual bubble
+        self.bubble = QFrame()
+        self.bubble.setObjectName("messageBubble")
+        bubble_inner_layout = QVBoxLayout(self.bubble)
+        bubble_inner_layout.setContentsMargins(12, 8, 12, 8)
+        
+        # Message text
+        self.text_label = QLabel(self.message.text)
+        self.text_label.setWordWrap(True)
+        self.text_label.setMaximumWidth(350)
+        self.text_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        bubble_inner_layout.addWidget(self.text_label)
+        
+        # Tag indicator
+        if self.tag_info:
+            tag_label = QLabel(f"🏷️ {self.tag_info['name']}")
+            tag_label.setObjectName("tagLabel")
+            bubble_inner_layout.addWidget(tag_label)
+        
+        # Media indicator
+        if self.message.media_urls or self.message.urls:
+            media_label = QLabel("📎 Media/Links attached")
+            media_label.setObjectName("mediaLabel")
+            bubble_inner_layout.addWidget(media_label)
+        
+        bubble_layout.addWidget(self.bubble)
+        
+        if not self.is_sent:
+            bubble_layout.addStretch()
+        
+        layout.addWidget(bubble_container)
+        
+        # Timestamp
+        timestamp_container = QWidget()
+        timestamp_layout = QHBoxLayout(timestamp_container)
+        timestamp_layout.setContentsMargins(0, 2, 0, 0)
+        
+        if self.is_sent:
+            timestamp_layout.addStretch()
+        
+        timestamp_label = QLabel(f"{self.timestamp} • Line {self.message.line_number}")
+        timestamp_label.setObjectName("timestampLabel")
+        timestamp_layout.addWidget(timestamp_label)
+        
+        if not self.is_sent:
+            timestamp_layout.addStretch()
+        
+        layout.addWidget(timestamp_container)
+        
+        self.update_style()
+    
+    def update_style(self):
+        """Update bubble styling based on state"""
+        if self.tag_info:
+            bubble_color = self.tag_info['color']
+        elif self.is_sent:
+            bubble_color = "#1d9bf0"
+        else:
+            bubble_color = "#2f3336"
+        
+        highlight_style = ""
+        if self.is_highlighted:
+            highlight_style = f"border: 2px solid #ffcc00;"
+        
+        self.bubble.setStyleSheet(f"""
+            #messageBubble {{
+                background-color: {bubble_color};
+                border-radius: 8px;
+                {highlight_style}
+            }}
+            #messageBubble QLabel {{
+                color: white;
+                font-size: 10pt;
+            }}
+            #tagLabel {{
+                font-size: 8pt;
+                font-weight: bold;
+            }}
+            #mediaLabel {{
+                color: #cccccc;
+                font-size: 8pt;
+            }}
+        """)
+        
+        self.setStyleSheet("""
+            #timestampLabel {
+                color: #8b8b8b;
+                font-size: 8pt;
+            }
+        """)
+    
+    def set_highlighted(self, highlighted: bool):
+        """Set highlight state for search results"""
+        self.is_highlighted = highlighted
+        self.update_style()
+    
+    def contextMenuEvent(self, event):
+        self.contextMenuRequested.emit(event.globalPos(), self.message, self.conversation_id)
+
 
 class TagManager:
     """Manages message tags"""
@@ -79,21 +290,7 @@ class TagManager:
         if tag_id is None:
             return list(self.message_tags.keys())
         return [(conv_id, msg_id) for (conv_id, msg_id), tid in self.message_tags.items() if tid == tag_id]
-    
-    def export_tags(self) -> Dict:
-        """Export tags to dict for saving"""
-        return {
-            'tags': self.tags,
-            'message_tags': {f"{k[0]}|{k[1]}": v for k, v in self.message_tags.items()}
-        }
-    
-    def import_tags(self, data: Dict):
-        """Import tags from dict"""
-        self.tags = data.get('tags', {})
-        self.message_tags = {}
-        for key, value in data.get('message_tags', {}).items():
-            conv_id, msg_id = key.split('|', 1)
-            self.message_tags[(conv_id, msg_id)] = value
+
 
 class SearchManager:
     """Manages search functionality"""
@@ -103,18 +300,7 @@ class SearchManager:
     
     def search_conversations(self, conversations: List[Conversation], query: str, 
                            search_type: str = 'all') -> List[Dict]:
-        """
-        Search conversations
-        
-        Args:
-            conversations: List of conversations to search
-            query: Search query
-            search_type: 'titles', 'content', or 'all'
-        
-        Returns:
-            List of search results with format:
-            {'conversation': Conversation, 'matches': List[Message], 'title_match': bool}
-        """
+        """Search conversations"""
         if not query:
             return []
         
@@ -155,41 +341,245 @@ class SearchManager:
                 matches.append(msg)
         
         return matches
-    
-    def highlight_text(self, text: str, query: str) -> List[Tuple[str, bool]]:
-        """
-        Split text into segments with highlight information
-        
-        Returns:
-            List of (text_segment, is_highlighted) tuples
-        """
-        if not query:
-            return [(text, False)]
-        
-        segments = []
-        pattern = re.compile(re.escape(query), re.IGNORECASE)
-        last_end = 0
-        
-        for match in pattern.finditer(text):
-            # Add non-matching segment
-            if match.start() > last_end:
-                segments.append((text[last_end:match.start()], False))
-            # Add matching segment
-            segments.append((text[match.start():match.end()], True))
-            last_end = match.end()
-        
-        # Add remaining text
-        if last_end < len(text):
-            segments.append((text[last_end:], False))
-        
-        return segments if segments else [(text, False)]
 
-class ModernMessageViewer:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Message-Maestro")
-        self.root.geometry("1200x800")
-        self.root.minsize(900, 600)
+
+class ConversationItem(QFrame):
+    """Custom conversation list item"""
+    clicked = pyqtSignal(object)
+    
+    def __init__(self, conversation: Conversation, search_info: Dict = None, 
+                 tag_manager: TagManager = None, parent=None):
+        super().__init__(parent)
+        self.conversation = conversation
+        self.search_info = search_info
+        self.tag_manager = tag_manager
+        self.is_selected = False
+        
+        self.setup_ui()
+        self.setMouseTracking(True)
+        
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        
+        # Participants
+        participants_text = ' ↔ '.join(self.conversation.participants[:2])
+        if len(participants_text) > 30:
+            participants_text = participants_text[:30] + '...'
+        
+        self.participants_label = QLabel(participants_text)
+        self.participants_label.setObjectName("participantsLabel")
+        layout.addWidget(self.participants_label)
+        
+        # Info
+        info_text = f"{len(self.conversation.messages)} messages"
+        if self.search_info and self.search_info.get('matches'):
+            info_text += f" • {len(self.search_info['matches'])} matches"
+        
+        # Count tagged messages
+        if self.tag_manager:
+            tagged_count = sum(1 for msg in self.conversation.messages 
+                             if self.tag_manager.get_message_tag(self.conversation.id, msg.id))
+            if tagged_count > 0:
+                info_text += f" • {tagged_count} tagged"
+        
+        self.info_label = QLabel(info_text)
+        self.info_label.setObjectName("infoLabel")
+        layout.addWidget(self.info_label)
+        
+        # Line number
+        self.line_label = QLabel(f"Line {self.conversation.line_number}")
+        self.line_label.setObjectName("lineLabel")
+        layout.addWidget(self.line_label)
+        
+        self.update_style()
+    
+    def update_style(self):
+        """Update item styling based on state"""
+        bg_color = "#1d9bf0" if self.is_selected else "#1a1a1a"
+        hover_color = "#353535" if not self.is_selected else "#1d9bf0"
+        
+        highlight_style = ""
+        if self.search_info and self.search_info.get('title_match'):
+            highlight_style = f"background-color: #3d3d00; color: #ffcc00;"
+        
+        self.setStyleSheet(f"""
+            ConversationItem {{
+                background-color: {bg_color};
+                border-radius: 5px;
+            }}
+            ConversationItem:hover {{
+                background-color: {hover_color};
+            }}
+            #participantsLabel {{
+                color: white;
+                font-size: 11pt;
+                font-weight: 500;
+                {highlight_style}
+            }}
+            #infoLabel {{
+                color: #8b8b8b;
+                font-size: 9pt;
+            }}
+            #lineLabel {{
+                color: #8b8b8b;
+                font-size: 8pt;
+            }}
+        """)
+    
+    def set_selected(self, selected: bool):
+        self.is_selected = selected
+        self.update_style()
+    
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit(self.conversation)
+        super().mousePressEvent(event)
+
+
+class TagManagerDialog(QDialog):
+    """Tag management dialog"""
+    def __init__(self, tag_manager: TagManager, parent=None):
+        super().__init__(parent)
+        self.tag_manager = tag_manager
+        self.tag_widgets = {}
+        
+        self.setWindowTitle("Manage Tags")
+        self.setModal(True)
+        self.resize(500, 600)
+        
+        self.setup_ui()
+        self.apply_dark_theme()
+    
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        
+        # Header
+        header = QLabel("Manage Tags")
+        header.setStyleSheet("font-size: 14pt; font-weight: bold; color: white;")
+        header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(header)
+        
+        layout.addSpacing(20)
+        
+        # Tags list
+        tags_widget = QWidget()
+        tags_layout = QVBoxLayout(tags_widget)
+        
+        for tag_id, tag_info in self.tag_manager.get_tags().items():
+            row_widget = QWidget()
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(0, 5, 0, 5)
+            
+            # Color button
+            color_btn = QPushButton()
+            color_btn.setFixedSize(30, 30)
+            color_btn.setStyleSheet(f"background-color: {tag_info['color']}; border: none; border-radius: 5px;")
+            color_btn.clicked.connect(lambda checked, tid=tag_id: self.pick_color(tid))
+            row_layout.addWidget(color_btn)
+            
+            # Name entry
+            name_entry = QLineEdit(tag_info['name'])
+            name_entry.setStyleSheet("background-color: #252525; color: white; border: 1px solid #2f3336; padding: 5px;")
+            row_layout.addWidget(name_entry)
+            
+            # Usage count
+            usage_count = len(self.tag_manager.get_tagged_messages(tag_id))
+            usage_label = QLabel(f"{usage_count} messages")
+            usage_label.setStyleSheet("color: #8b8b8b;")
+            row_layout.addWidget(usage_label)
+            
+            tags_layout.addWidget(row_widget)
+            
+            self.tag_widgets[tag_id] = {
+                'name_entry': name_entry,
+                'color_btn': color_btn,
+                'color': tag_info['color']
+            }
+        
+        scroll_area = QScrollArea()
+        scroll_area.setWidget(tags_widget)
+        scroll_area.setWidgetResizable(True)
+        layout.addWidget(scroll_area)
+        
+        # Buttons
+        layout.addSpacing(20)
+        
+        buttons_widget = QWidget()
+        buttons_layout = QHBoxLayout(buttons_widget)
+        buttons_layout.setContentsMargins(0, 0, 0, 0)
+        
+        save_btn = QPushButton("Save")
+        save_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #1d9bf0;
+                color: white;
+                border: none;
+                padding: 8px 20px;
+                border-radius: 5px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #1a8cd8;
+            }
+        """)
+        save_btn.clicked.connect(self.save_tags)
+        
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #252525;
+                color: white;
+                border: none;
+                padding: 8px 20px;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #353535;
+            }
+        """)
+        cancel_btn.clicked.connect(self.reject)
+        
+        buttons_layout.addStretch()
+        buttons_layout.addWidget(save_btn)
+        buttons_layout.addWidget(cancel_btn)
+        
+        layout.addWidget(buttons_widget)
+    
+    def apply_dark_theme(self):
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #1a1a1a;
+            }
+            QLabel {
+                color: white;
+            }
+        """)
+    
+    def pick_color(self, tag_id: str):
+        current_color = QColor(self.tag_widgets[tag_id]['color'])
+        color = QColorDialog.getColor(current_color, self, "Select Tag Color")
+        
+        if color.isValid():
+            self.tag_widgets[tag_id]['color'] = color.name()
+            self.tag_widgets[tag_id]['color_btn'].setStyleSheet(
+                f"background-color: {color.name()}; border: none; border-radius: 5px;"
+            )
+    
+    def save_tags(self):
+        for tag_id, widgets in self.tag_widgets.items():
+            self.tag_manager.update_tag(
+                tag_id,
+                widgets['name_entry'].text(),
+                widgets['color']
+            )
+        self.accept()
+
+
+class ModernMessageViewer(QMainWindow):
+    def __init__(self):
+        super().__init__()
         
         # Modern color scheme
         self.colors = {
@@ -223,27 +613,22 @@ class ModernMessageViewer:
         # UI state
         self.selected_conv_item = None
         self.conv_items = []
-        self.selected_parser = tk.StringVar(value="auto")
-        self.search_query = tk.StringVar()
-        self.search_scope = tk.StringVar(value="all")
+        self.selected_parser = "auto"
         self.message_widgets = {}  # {(conv_id, msg_id): widget}
         
-        # In-conversation search state
-        self.conv_search_query = tk.StringVar()
+        # Search state
         self.search_results = []
         self.current_search_index = -1
         self.last_highlighted_widget = None
         
         # Setup UI
         self.pdf_font_family = self.register_pdf_fonts()
-        self.setup_fonts()
-        self.setup_styles()
-        self.setup_keyboard_navigation()
-        self.create_ui()
-        self.setup_context_menu()
-
+        self.setup_ui()
+        self.setup_shortcuts()
+        self.apply_dark_theme()
+        
     def register_pdf_fonts(self):
-        """Registers Segoe UI font for PDF generation, with fallback."""
+        """Registers fonts for PDF generation"""
         font_family = "Helvetica"
         if platform.system() == "Windows":
             font_dir = r"C:\Windows\Fonts"
@@ -270,565 +655,540 @@ class ModernMessageViewer:
                     font_family = "SegoeUI"
                 except Exception as e:
                     print(f"Could not register Segoe UI font: {e}")
-                    font_family = "Helvetica"
         
         return font_family
     
-    def setup_fonts(self):
-        self.fonts = {
-            'header': font.Font(family='Segoe UI', size=14, weight='bold'),
-            'conversation': font.Font(family='Segoe UI', size=11),
-            'message': font.Font(family='Segoe UI', size=10),
-            'timestamp': font.Font(family='Segoe UI', size=8),
-            'status': font.Font(family='Segoe UI', size=9),
-            'search': font.Font(family='Segoe UI', size=10)
-        }
+    def setup_ui(self):
+        self.setWindowTitle("Message-Maestro")
+        self.resize(1200, 800)
+        self.setMinimumSize(900, 600)
+        
+        # Central widget
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        
+        # Main layout
+        main_layout = QHBoxLayout(central_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        
+        # Create splitter for resizable panels
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        main_layout.addWidget(self.splitter)
+        
+        # Create sidebar and chat area
+        self.create_sidebar()
+        self.create_chat_area()
+        
+        # Add to splitter
+        self.splitter.addWidget(self.sidebar)
+        self.splitter.addWidget(self.chat_area)
+        self.splitter.setSizes([350, 850])
+        
+        # Status bar
+        self.create_status_bar()
+        
+        # Context menu
+        self.setup_context_menu()
     
-    def setup_styles(self):
-        style = ttk.Style()
-        style.theme_use('clam')
+    def create_sidebar(self):
+        """Create the sidebar panel"""
+        self.sidebar = QWidget()
+        self.sidebar.setObjectName("sidebar")
+        sidebar_layout = QVBoxLayout(self.sidebar)
+        sidebar_layout.setContentsMargins(0, 0, 0, 0)
+        sidebar_layout.setSpacing(0)
         
-        style.configure('Header.TLabel',
-                       background=self.colors['bg_primary'],
-                       foreground=self.colors['text_primary'],
-                       font=self.fonts['header'])
+        # Header
+        header_widget = QWidget()
+        header_widget.setFixedHeight(60)
+        header_widget.setObjectName("sidebarHeader")
+        header_layout = QHBoxLayout(header_widget)
+        header_layout.setContentsMargins(20, 15, 20, 15)
         
-        style.configure('Status.TLabel',
-                       background=self.colors['bg_tertiary'],
-                       foreground=self.colors['text_secondary'],
-                       font=self.fonts['status'])
+        title_label = QLabel("Conversations")
+        title_label.setStyleSheet("font-size: 14pt; font-weight: bold; color: white;")
+        header_layout.addWidget(title_label)
         
-        # Style for Radiobuttons
-        style.configure('TRadiobutton',
-                        background=self.colors['bg_secondary'],
-                        foreground=self.colors['text_primary'],
-                        font=('Segoe UI', 9),
-                        padding=(10, 5),
-                        indicatorcolor=self.colors['bg_secondary'],
-                        bordercolor=self.colors['border'])
-        style.map('TRadiobutton',
-                  background=[('active', self.colors['hover'])],
-                  indicatorcolor=[('selected', self.colors['accent']),
-                                  ('!selected', self.colors['text_secondary'])])
+        header_layout.addStretch()
+        
+        # Tags button
+        tags_btn = QPushButton("🏷️")
+        tags_btn.setFixedSize(35, 30)
+        tags_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #252525;
+                border: none;
+                border-radius: 5px;
+                font-size: 12pt;
+            }
+            QPushButton:hover {
+                background-color: #353535;
+            }
+        """)
+        tags_btn.clicked.connect(self.open_tag_manager)
+        header_layout.addWidget(tags_btn)
+        
+        # Open file button
+        open_btn = AnimatedButton("Open File")
+        open_btn.clicked.connect(self.open_file)
+        header_layout.addWidget(open_btn)
+        
+        sidebar_layout.addWidget(header_widget)
+        
+        # Search bar
+        self.create_search_bar(sidebar_layout)
+        
+        # Parser selection
+        self.create_parser_selection(sidebar_layout)
+        
+        # Conversations list
+        self.create_conversation_list(sidebar_layout)
     
-    def setup_keyboard_navigation(self):
-        def on_key_press(event):
-            # Search shortcuts
-            if event.state & 0x4:  # Ctrl key
-                if event.keysym == 'f':
-                    self.focus_search()
-                    return 'break'
-                elif event.keysym == 'g':
-                    if event.state & 0x1:  # Shift+Ctrl+G
-                        self.find_previous()
-                    else:
-                        self.find_next()
-                    return 'break'
-            
-            # Navigation shortcuts
-            if not self.search_entry.focus_get() == self.search_entry:
-                if not self.conv_items:
-                    return
-                
-                if event.keysym == 'Down':
-                    self.navigate_conversations(1)
-                    return 'break'
-                elif event.keysym == 'Up':
-                    self.navigate_conversations(-1)
-                    return 'break'
-                elif event.keysym == 'Return':
-                    if self.selected_conv_item:
-                        self.select_conversation_by_item(self.selected_conv_item)
-                    return 'break'
+    def create_search_bar(self, parent_layout):
+        """Create search bar"""
+        search_widget = QWidget()
+        search_widget.setObjectName("searchWidget")
+        search_layout = QVBoxLayout(search_widget)
+        search_layout.setContentsMargins(20, 10, 20, 5)
         
-        self.root.bind('<Key>', on_key_press)
-        self.root.focus_set()
+        # Search input
+        search_container = QWidget()
+        search_container.setObjectName("searchContainer")
+        search_container_layout = QHBoxLayout(search_container)
+        search_container_layout.setContentsMargins(10, 0, 10, 0)
+        
+        search_icon = QLabel("🔍")
+        search_container_layout.addWidget(search_icon)
+        
+        self.search_entry = QLineEdit()
+        self.search_entry.setPlaceholderText("Search conversations...")
+        self.search_entry.setObjectName("searchEntry")
+        self.search_entry.returnPressed.connect(self.perform_search)
+        search_container_layout.addWidget(self.search_entry)
+        
+        clear_btn = QPushButton("✕")
+        clear_btn.setFixedSize(20, 20)
+        clear_btn.setObjectName("clearButton")
+        clear_btn.clicked.connect(self.clear_search)
+        search_container_layout.addWidget(clear_btn)
+        
+        search_layout.addWidget(search_container)
+        
+        # Search options
+        options_widget = QWidget()
+        options_layout = QHBoxLayout(options_widget)
+        options_layout.setContentsMargins(0, 5, 0, 0)
+        
+        self.search_button_group = QButtonGroup()
+        
+        all_radio = QRadioButton("All")
+        all_radio.setChecked(True)
+        all_radio.toggled.connect(lambda: self.perform_search() if all_radio.isChecked() else None)
+        self.search_button_group.addButton(all_radio, 0)
+        options_layout.addWidget(all_radio)
+        
+        titles_radio = QRadioButton("Titles")
+        titles_radio.toggled.connect(lambda: self.perform_search() if titles_radio.isChecked() else None)
+        self.search_button_group.addButton(titles_radio, 1)
+        options_layout.addWidget(titles_radio)
+        
+        content_radio = QRadioButton("Content")
+        content_radio.toggled.connect(lambda: self.perform_search() if content_radio.isChecked() else None)
+        self.search_button_group.addButton(content_radio, 2)
+        options_layout.addWidget(content_radio)
+        
+        options_layout.addStretch()
+        
+        self.search_results_label = QLabel("")
+        self.search_results_label.setObjectName("searchResultsLabel")
+        options_layout.addWidget(self.search_results_label)
+        
+        search_layout.addWidget(options_widget)
+        parent_layout.addWidget(search_widget)
+    
+    def create_parser_selection(self, parent_layout):
+        """Create parser selection"""
+        parser_widget = QWidget()
+        parser_layout = QVBoxLayout(parser_widget)
+        parser_layout.setContentsMargins(20, 10, 20, 0)
+        
+        label = QLabel("Select Parser:")
+        label.setStyleSheet("color: #8b8b8b; font-weight: bold;")
+        parser_layout.addWidget(label)
+        
+        self.parser_button_group = QButtonGroup()
+        
+        # Auto-detect option
+        auto_radio = QRadioButton("Auto-detect")
+        auto_radio.setChecked(True)
+        self.parser_button_group.addButton(auto_radio, -1)
+        parser_layout.addWidget(auto_radio)
+        
+        # Available parsers
+        for i, parser in enumerate(self.parser_manager.get_available_parsers()):
+            radio = QRadioButton(parser.platform_name)
+            self.parser_button_group.addButton(radio, i)
+            parser_layout.addWidget(radio)
+        
+        parent_layout.addWidget(parser_widget)
+    
+    def create_conversation_list(self, parent_layout):
+        """Create scrollable conversation list"""
+        self.conv_scroll_area = GPUAcceleratedScrollArea()
+        self.conv_scroll_area.setObjectName("convScrollArea")
+        
+        self.conv_list_widget = QWidget()
+        self.conv_list_layout = QVBoxLayout(self.conv_list_widget)
+        self.conv_list_layout.setContentsMargins(10, 10, 10, 10)
+        self.conv_list_layout.setSpacing(5)
+        
+        self.conv_scroll_area.setWidget(self.conv_list_widget)
+        parent_layout.addWidget(self.conv_scroll_area, 1)
+    
+    def create_chat_area(self):
+        """Create the chat area"""
+        self.chat_area = QWidget()
+        self.chat_area.setObjectName("chatArea")
+        chat_layout = QVBoxLayout(self.chat_area)
+        chat_layout.setContentsMargins(0, 0, 0, 0)
+        chat_layout.setSpacing(0)
+        
+        # Chat header
+        self.chat_header = QWidget()
+        self.chat_header.setFixedHeight(60)
+        self.chat_header.setObjectName("chatHeader")
+        header_layout = QHBoxLayout(self.chat_header)
+        header_layout.setContentsMargins(20, 15, 20, 15)
+        
+        self.header_label = QLabel("Select a conversation")
+        self.header_label.setStyleSheet("font-size: 14pt; font-weight: bold; color: white;")
+        header_layout.addWidget(self.header_label)
+        
+        header_layout.addStretch()
+        
+        # In-conversation search (initially hidden)
+        self.conv_search_widget = QWidget()
+        self.conv_search_widget.hide()
+        conv_search_layout = QHBoxLayout(self.conv_search_widget)
+        conv_search_layout.setContentsMargins(0, 0, 0, 0)
+        
+        conv_search_layout.addWidget(QLabel("Find:"))
+        
+        self.conv_search_entry = QLineEdit()
+        self.conv_search_entry.setFixedWidth(200)
+        self.conv_search_entry.returnPressed.connect(self.handle_conv_search_enter)
+        conv_search_layout.addWidget(self.conv_search_entry)
+        
+        prev_btn = QPushButton("↑ Prev")
+        prev_btn.clicked.connect(self.find_previous)
+        conv_search_layout.addWidget(prev_btn)
+        
+        next_btn = QPushButton("Next ↓")
+        next_btn.clicked.connect(self.find_next)
+        conv_search_layout.addWidget(next_btn)
+        
+        self.conv_search_stats = QLabel("")
+        conv_search_layout.addWidget(self.conv_search_stats)
+        
+        close_btn = QPushButton("✕")
+        close_btn.clicked.connect(self.close_conv_search)
+        conv_search_layout.addWidget(close_btn)
+        
+        header_layout.addWidget(self.conv_search_widget)
+        
+        # Header buttons
+        self.header_buttons_widget = QWidget()
+        header_buttons_layout = QHBoxLayout(self.header_buttons_widget)
+        header_buttons_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.search_conv_btn = QPushButton("🔍 Search")
+        self.search_conv_btn.setEnabled(False)
+        self.search_conv_btn.clicked.connect(self.search_in_current_conversation)
+        header_buttons_layout.addWidget(self.search_conv_btn)
+        
+        self.export_pdf_btn = AnimatedButton("Export as PDF")
+        self.export_pdf_btn.setEnabled(False)
+        self.export_pdf_btn.clicked.connect(self.export_to_pdf)
+        header_buttons_layout.addWidget(self.export_pdf_btn)
+        
+        header_layout.addWidget(self.header_buttons_widget)
+        
+        chat_layout.addWidget(self.chat_header)
+        
+        # Messages area
+        self.msg_scroll_area = GPUAcceleratedScrollArea()
+        self.msg_scroll_area.setObjectName("msgScrollArea")
+        
+        self.msg_list_widget = QWidget()
+        self.msg_list_layout = QVBoxLayout(self.msg_list_widget)
+        self.msg_list_layout.setContentsMargins(20, 10, 20, 10)
+        self.msg_list_layout.setSpacing(5)
+        
+        self.msg_scroll_area.setWidget(self.msg_list_widget)
+        chat_layout.addWidget(self.msg_scroll_area)
+        
+        # Show empty state
+        self.show_empty_state()
+    
+    def create_status_bar(self):
+        """Create status bar"""
+        self.status_bar = self.statusBar()
+        self.status_bar.setStyleSheet("""
+            QStatusBar {
+                background-color: #252525;
+                color: #8b8b8b;
+                font-size: 9pt;
+            }
+        """)
+        self.status_bar.showMessage("No file loaded")
+    
+    def setup_shortcuts(self):
+        """Setup keyboard shortcuts"""
+        # Search shortcut
+        search_action = QAction("Search", self)
+        search_action.setShortcut(QKeySequence("Ctrl+F"))
+        search_action.triggered.connect(self.focus_search)
+        self.addAction(search_action)
+        
+        # Find next/previous
+        find_next_action = QAction("Find Next", self)
+        find_next_action.setShortcut(QKeySequence("Ctrl+G"))
+        find_next_action.triggered.connect(self.find_next)
+        self.addAction(find_next_action)
+        
+        find_prev_action = QAction("Find Previous", self)
+        find_prev_action.setShortcut(QKeySequence("Ctrl+Shift+G"))
+        find_prev_action.triggered.connect(self.find_previous)
+        self.addAction(find_prev_action)
     
     def setup_context_menu(self):
-        """Setup right-click context menu for messages"""
-        self.context_menu = tk.Menu(self.root, tearoff=0, bg=self.colors['bg_secondary'],
-                                   fg=self.colors['text_primary'], font=self.fonts['message'])
+        """Setup context menu for messages"""
+        self.context_menu = QMenu(self)
         
         # Tag submenu
-        self.tag_menu = tk.Menu(self.context_menu, tearoff=0, bg=self.colors['bg_secondary'],
-                               fg=self.colors['text_primary'], font=self.fonts['message'])
-        self.context_menu.add_cascade(label="Tag Message", menu=self.tag_menu)
-        self.context_menu.add_separator()
-        self.context_menu.add_command(label="Remove Tag", command=self.remove_tag_from_message)
+        self.tag_menu = QMenu("Tag Message", self)
+        self.context_menu.addMenu(self.tag_menu)
+        self.context_menu.addSeparator()
+        
+        remove_tag_action = self.context_menu.addAction("Remove Tag")
+        remove_tag_action.triggered.connect(self.remove_tag_from_message)
         
         self.update_tag_menu()
     
     def update_tag_menu(self):
-        """Update the tag submenu with current tags"""
-        self.tag_menu.delete(0, tk.END)
+        """Update tag submenu"""
+        self.tag_menu.clear()
         
         for tag_id, tag_info in self.tag_manager.get_tags().items():
-            self.tag_menu.add_command(
-                label=f"● {tag_info['name']}",
-                foreground=tag_info['color'],
-                command=lambda tid=tag_id: self.tag_current_message(tid)
-            )
+            action = self.tag_menu.addAction(f"● {tag_info['name']}")
+            action.setData(tag_id)
+            action.triggered.connect(lambda checked, tid=tag_id: self.tag_current_message(tid))
+            
+            # Set color for the action
+            action.setIconText(f"● {tag_info['name']}")
         
-        self.tag_menu.add_separator()
-        self.tag_menu.add_command(label="Manage Tags...", command=self.open_tag_manager)
+        self.tag_menu.addSeparator()
+        manage_tags_action = self.tag_menu.addAction("Manage Tags...")
+        manage_tags_action.triggered.connect(self.open_tag_manager)
     
-    def navigate_conversations(self, direction):
-        if not self.conv_items:
-            return
-        
-        current_index = 0
-        if self.selected_conv_item:
-            try:
-                current_index = self.conv_items.index(self.selected_conv_item)
-            except ValueError:
-                current_index = 0
-        
-        new_index = current_index + direction
-        new_index = max(0, min(len(self.conv_items) - 1, new_index))
-        
-        new_item = self.conv_items[new_index]
-        self.select_conversation_by_item(new_item)
-        self.scroll_to_conversation(new_item)
-    
-    def scroll_to_conversation(self, conv_item):
-        canvas_height = self.conv_canvas.winfo_height()
-        scroll_region = self.conv_canvas.bbox("all")
-        
-        if not scroll_region:
-            return
-        
-        item_y = conv_item.winfo_y()
-        item_height = conv_item.winfo_height()
-        
-        view_top = self.conv_canvas.canvasy(0)
-        view_bottom = view_top + canvas_height
-        
-        if item_y < view_top:
-            fraction = item_y / scroll_region[3]
-            self.conv_canvas.yview_moveto(fraction)
-        elif item_y + item_height > view_bottom:
-            fraction = (item_y + item_height - canvas_height) / scroll_region[3]
-            self.conv_canvas.yview_moveto(fraction)
-    
-    def create_ui(self):
-        self.root.configure(bg=self.colors['bg_primary'])
-        
-        # Main container
-        main_container = tk.Frame(self.root, bg=self.colors['bg_primary'])
-        main_container.pack(fill=tk.BOTH, expand=True)
-        
-        # Create components
-        self.create_sidebar(main_container)
-        self.create_chat_area(main_container)
-        self.create_status_bar()
-    
-    def create_sidebar(self, parent):
-        sidebar = tk.Frame(parent, bg=self.colors['bg_secondary'], width=350)
-        sidebar.pack(side=tk.LEFT, fill=tk.Y)
-        sidebar.pack_propagate(False)
-        
-        # Header
-        header_frame = tk.Frame(sidebar, bg=self.colors['bg_secondary'], height=60)
-        header_frame.pack(fill=tk.X)
-        header_frame.pack_propagate(False)
-        
-        title_container = tk.Frame(header_frame, bg=self.colors['bg_secondary'])
-        title_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=15)
-        
-        title_label = tk.Label(title_container, text="Conversations",
-                              bg=self.colors['bg_secondary'],
-                              fg=self.colors['text_primary'],
-                              font=self.fonts['header'])
-        title_label.pack(side=tk.LEFT)
-        
-        # Buttons container
-        buttons_frame = tk.Frame(title_container, bg=self.colors['bg_secondary'])
-        buttons_frame.pack(side=tk.RIGHT)
-        
-        # Tags button
-        tags_btn = tk.Button(buttons_frame, text="🏷️",
-                           bg=self.colors['bg_tertiary'],
-                           fg=self.colors['text_primary'],
-                           font=('Segoe UI', 12),
-                           bd=0,
-                           padx=8,
-                           pady=3,
-                           cursor='hand2',
-                           command=self.open_tag_manager)
-        tags_btn.pack(side=tk.LEFT, padx=(0, 5))
-        
-        # Open file button
-        open_btn = tk.Button(buttons_frame, text="Open File",
-                            bg=self.colors['accent'],
-                            fg='white',
-                            font=('Segoe UI', 9),
-                            bd=0,
-                            padx=15,
-                            pady=5,
-                            cursor='hand2',
-                            command=self.open_file)
-        open_btn.pack(side=tk.LEFT)
-        
-        # Search bar
-        self.create_search_bar(sidebar)
-        
-        # Parser selection
-        self.create_parser_selection(sidebar)
-        
-        # Conversations list
-        self.create_scrollable_conversation_list(sidebar)
-    
-    def create_search_bar(self, parent):
-        """Create search bar in sidebar"""
-        search_frame = tk.Frame(parent, bg=self.colors['bg_secondary'])
-        search_frame.pack(fill=tk.X, padx=20, pady=(10, 5))
-        
-        # Search input container
-        search_container = tk.Frame(search_frame, bg=self.colors['bg_tertiary'])
-        search_container.pack(fill=tk.X)
-        
-        # Search icon
-        search_icon = tk.Label(search_container, text="🔍",
-                             bg=self.colors['bg_tertiary'],
-                             fg=self.colors['text_secondary'])
-        search_icon.pack(side=tk.LEFT, padx=(10, 5))
-        
-        # Search entry
-        self.search_entry = tk.Entry(search_container,
-                                   textvariable=self.search_query,
-                                   bg=self.colors['bg_tertiary'],
-                                   fg=self.colors['text_primary'],
-                                   font=self.fonts['search'],
-                                   bd=0,
-                                   insertbackground=self.colors['text_primary'])
-        self.search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, pady=8)
-        self.search_entry.bind('<Return>', lambda e: self.perform_search())
-        self.search_entry.bind('<Escape>', lambda e: self.clear_search())
-        
-        # Clear button
-        self.clear_btn = tk.Button(search_container, text="✕",
-                                 bg=self.colors['bg_tertiary'],
-                                 fg=self.colors['text_secondary'],
-                                 font=('Segoe UI', 10),
-                                 bd=0,
-                                 cursor='hand2',
-                                 command=self.clear_search)
-        self.clear_btn.pack(side=tk.RIGHT, padx=(5, 10))
-        
-        # Search options
-        options_frame = tk.Frame(parent, bg=self.colors['bg_secondary'])
-        options_frame.pack(fill=tk.X, padx=20, pady=(5, 10))
-        
-        # Search scope radio buttons
-        tk.Radiobutton(options_frame, text="All",
-                      variable=self.search_scope, value="all",
-                      bg=self.colors['bg_secondary'],
-                      fg=self.colors['text_secondary'],
-                      selectcolor=self.colors['bg_secondary'],
-                      activebackground=self.colors['bg_secondary'],
-                      font=('Segoe UI', 8),
-                      command=self.perform_search).pack(side=tk.LEFT, padx=(0, 10))
-        
-        tk.Radiobutton(options_frame, text="Titles",
-                      variable=self.search_scope, value="titles",
-                      bg=self.colors['bg_secondary'],
-                      fg=self.colors['text_secondary'],
-                      selectcolor=self.colors['bg_secondary'],
-                      activebackground=self.colors['bg_secondary'],
-                      font=('Segoe UI', 8),
-                      command=self.perform_search).pack(side=tk.LEFT, padx=(0, 10))
-        
-        tk.Radiobutton(options_frame, text="Content",
-                      variable=self.search_scope, value="content",
-                      bg=self.colors['bg_secondary'],
-                      fg=self.colors['text_secondary'],
-                      selectcolor=self.colors['bg_secondary'],
-                      activebackground=self.colors['bg_secondary'],
-                      font=('Segoe UI', 8),
-                      command=self.perform_search).pack(side=tk.LEFT)
-        
-        # Search results label
-        self.search_results_label = tk.Label(options_frame, text="",
-                                           bg=self.colors['bg_secondary'],
-                                           fg=self.colors['text_secondary'],
-                                           font=('Segoe UI', 8))
-        self.search_results_label.pack(side=tk.RIGHT)
-    
-    def create_parser_selection(self, parent):
-        parser_frame = tk.Frame(parent, bg=self.colors['bg_secondary'])
-        parser_frame.pack(fill=tk.X, padx=20, pady=(10, 0))
-        
-        label = tk.Label(parser_frame, text="Select Parser:",
-                         bg=self.colors['bg_secondary'],
-                         fg=self.colors['text_secondary'],
-                         font=('Segoe UI', 9, 'bold'))
-        label.pack(anchor='w')
-        
-        # Auto-detect option
-        auto_rb = ttk.Radiobutton(parser_frame, text="Auto-detect",
-                                  variable=self.selected_parser,
-                                  value="auto",
-                                  style='TRadiobutton')
-        auto_rb.pack(anchor='w')
-        
-        # Parsers
-        for parser in self.parser_manager.get_available_parsers():
-            rb = ttk.Radiobutton(parser_frame, text=parser.platform_name,
-                                 variable=self.selected_parser,
-                                 value=parser.platform_name,
-                                 style='TRadiobutton')
-            rb.pack(anchor='w')
-    
-    def create_scrollable_conversation_list(self, parent):
-        list_container = tk.Frame(parent, bg=self.colors['bg_secondary'])
-        list_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=(10,0))
-        
-        # Canvas for scrolling
-        self.conv_canvas = tk.Canvas(list_container, bg=self.colors['bg_secondary'], 
-                                    highlightthickness=0, bd=0)
-        
-        # Scrollbar
-        scrollbar = ttk.Scrollbar(list_container, orient="vertical", 
-                                 command=self.conv_canvas.yview)
-        
-        # Frame inside canvas
-        self.conv_frame = tk.Frame(self.conv_canvas, bg=self.colors['bg_secondary'])
-        
-        # Create window in canvas
-        self.canvas_window = self.conv_canvas.create_window((0, 0), 
-                                                           window=self.conv_frame, 
-                                                           anchor="nw")
-        
-        # Configure canvas
-        self.conv_canvas.configure(yscrollcommand=scrollbar.set)
-        
-        def configure_scroll_region(event=None):
-            self.conv_canvas.configure(scrollregion=self.conv_canvas.bbox("all"))
-            canvas_width = self.conv_canvas.winfo_width()
-            self.conv_canvas.itemconfig(self.canvas_window, width=canvas_width)
-        
-        self.conv_frame.bind("<Configure>", configure_scroll_region)
-        self.conv_canvas.bind("<Configure>", 
-                             lambda e: self.conv_canvas.itemconfig(self.canvas_window, 
-                                                                  width=e.width))
-        
-        # Mouse wheel scrolling
-        def on_mousewheel(event):
-            if self.conv_canvas.winfo_exists():
-                self.conv_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
-        
-        self.conv_canvas.bind("<MouseWheel>", on_mousewheel)
-        
-        # Pack widgets
-        self.conv_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-    
-    def create_chat_area(self, parent):
-        chat_container = tk.Frame(parent, bg=self.colors['bg_primary'])
-        chat_container.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        
-        # Chat header
-        self.chat_header = tk.Frame(chat_container, bg=self.colors['bg_tertiary'], 
-                                   height=60)
-        self.chat_header.pack(fill=tk.X)
-        self.chat_header.pack_propagate(False)
-        
-        header_content = tk.Frame(self.chat_header, bg=self.colors['bg_tertiary'])
-        header_content.pack(fill=tk.BOTH, expand=True, padx=20, pady=15)
-        
-        self.header_label = tk.Label(header_content,
-                                    text="Select a conversation",
-                                    bg=self.colors['bg_tertiary'],
-                                    fg=self.colors['text_primary'],
-                                    font=self.fonts['header'])
-        self.header_label.pack(side=tk.LEFT)
-        
-        # --- In-conversation search bar (initially hidden) ---
-        self.conv_search_frame = tk.Frame(header_content, bg=self.colors['bg_tertiary'])
-        # self.conv_search_frame.pack(side=tk.RIGHT, padx=10)
-        
-        tk.Label(self.conv_search_frame, text="Find:", 
-                 bg=self.colors['bg_tertiary'], 
-                 fg=self.colors['text_secondary']).pack(side=tk.LEFT, padx=(0, 5))
-        
-        conv_search_entry = tk.Entry(self.conv_search_frame, 
-                                     textvariable=self.conv_search_query, 
-                                     bg=self.colors['bg_secondary'], 
-                                     fg=self.colors['text_primary'], 
-                                     bd=0, width=20)
-        conv_search_entry.pack(side=tk.LEFT, padx=5)
-        conv_search_entry.bind('<Return>', lambda e: self.handle_conv_search_enter())
-        conv_search_entry.bind('<Escape>', lambda e: self.close_conv_search())
-        
-        # Previous/Next buttons
-        prev_btn = tk.Button(self.conv_search_frame, text="↑ Prev", 
-                             command=self.find_previous, **self.get_button_styles('secondary'))
-        prev_btn.pack(side=tk.LEFT, padx=5)
-        
-        next_btn = tk.Button(self.conv_search_frame, text="Next ↓", 
-                             command=self.find_next, **self.get_button_styles('secondary'))
-        next_btn.pack(side=tk.LEFT, padx=5)
-        
-        self.conv_search_stats = tk.Label(self.conv_search_frame, text="", 
-                                          bg=self.colors['bg_tertiary'], 
-                                          fg=self.colors['text_secondary'])
-        self.conv_search_stats.pack(side=tk.LEFT, padx=5)
-        
-        close_btn = tk.Button(self.conv_search_frame, text="✕", 
-                              command=self.close_conv_search, **self.get_button_styles('secondary'))
-        close_btn.pack(side=tk.LEFT, padx=5)
-        
-        # --- Header buttons ---
-        self.header_buttons_frame = tk.Frame(header_content, bg=self.colors['bg_tertiary'])
-        self.header_buttons_frame.pack(side=tk.RIGHT)
-        
-        # Search in conversation button
-        self.search_conv_btn = tk.Button(self.header_buttons_frame, text="🔍 Search",
-                                       **self.get_button_styles('secondary'),
-                                       command=self.search_in_current_conversation,
-                                       state=tk.DISABLED)
-        self.search_conv_btn.pack(side=tk.LEFT, padx=(0, 10))
-        
-        # Export PDF button
-        self.export_pdf_btn = tk.Button(self.header_buttons_frame, text="Export as PDF",
-                                     bg=self.colors['accent'],
-                                     fg='white',
-                                     font=('Segoe UI', 9),
-                                     bd=0,
-                                     padx=15,
-                                     pady=5,
-                                     cursor='hand2',
-                                     command=self.export_to_pdf,
-                                     state=tk.DISABLED)
-        self.export_pdf_btn.pack(side=tk.LEFT)
-        
-        # Messages container
-        self.create_scrollable_message_area(chat_container)
-        
-        # Show empty state initially
-        self.show_empty_state()
-    
-    def create_scrollable_message_area(self, parent):
-        self.msg_container = tk.Frame(parent, bg=self.colors['bg_primary'])
-        self.msg_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
-        
-        # Create scrollable message area
-        self.msg_canvas = tk.Canvas(self.msg_container, bg=self.colors['bg_primary'], 
-                                   highlightthickness=0)
-        msg_scrollbar = ttk.Scrollbar(self.msg_container, orient="vertical", 
-                                     command=self.msg_canvas.yview)
-        self.msg_frame = tk.Frame(self.msg_canvas, bg=self.colors['bg_primary'])
-        
-        self.msg_window = self.msg_canvas.create_window((0, 0), 
-                                                       window=self.msg_frame, 
-                                                       anchor="nw")
-        
-        def configure_msg_scroll(event=None):
-            self.msg_canvas.configure(scrollregion=self.msg_canvas.bbox("all"))
-            canvas_width = self.msg_canvas.winfo_width()
-            self.msg_canvas.itemconfig(self.msg_window, width=canvas_width)
-        
-        self.msg_frame.bind("<Configure>", configure_msg_scroll)
-        self.msg_canvas.bind("<Configure>", 
-                            lambda e: self.msg_canvas.itemconfig(self.msg_window, 
-                                                               width=e.width))
-        
-        self.msg_canvas.configure(yscrollcommand=msg_scrollbar.set)
-        
-        # Mouse wheel for messages
-        def on_msg_mousewheel(event):
-            if self.msg_canvas.winfo_exists():
-                # Get current scroll position
-                top, bottom = self.msg_canvas.yview()
-                scroll_amount = int(-1*(event.delta/120))
-                
-                # Only scroll if there's content to scroll
-                if scroll_amount > 0 and bottom < 1.0:  # Scrolling down
-                    self.msg_canvas.yview_scroll(scroll_amount, "units")
-                elif scroll_amount < 0 and top > 0.0:  # Scrolling up
-                    self.msg_canvas.yview_scroll(scroll_amount, "units")
-        
-        # Store the mousewheel function for use in other methods
-        self.on_msg_mousewheel = on_msg_mousewheel
-        
-        # Function to recursively bind mousewheel to widget and all children
-        def bind_mousewheel_recursive(widget):
-            widget.bind("<MouseWheel>", on_msg_mousewheel)
-            for child in widget.winfo_children():
-                bind_mousewheel_recursive(child)
-        
-        # Bind mousewheel to canvas, frame, and container
-        bind_mousewheel_recursive(self.msg_canvas)
-        bind_mousewheel_recursive(self.msg_frame)
-        bind_mousewheel_recursive(self.msg_container)
-        
-        # Store the recursive binding function for use when creating new widgets
-        self.bind_mousewheel_recursive = bind_mousewheel_recursive
-        
-        self.msg_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        msg_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-    
-    def create_status_bar(self):
-        status_bar = tk.Frame(self.root, bg=self.colors['bg_tertiary'], height=30)
-        status_bar.pack(side=tk.BOTTOM, fill=tk.X)
-        status_bar.pack_propagate(False)
-        
-        self.status_label = tk.Label(status_bar,
-                                    text="No file loaded",
-                                    bg=self.colors['bg_tertiary'],
-                                    fg=self.colors['text_secondary'],
-                                    font=self.fonts['status'])
-        self.status_label.pack(side=tk.LEFT, padx=10, pady=5)
+    def apply_dark_theme(self):
+        """Apply dark theme to the application"""
+        dark_style = f"""
+            QMainWindow {{
+                background-color: {self.colors['bg_primary']};
+            }}
+            
+            #sidebar {{
+                background-color: {self.colors['bg_secondary']};
+            }}
+            
+            #sidebarHeader {{
+                background-color: {self.colors['bg_secondary']};
+                border-bottom: 1px solid {self.colors['border']};
+            }}
+            
+            #searchWidget {{
+                background-color: {self.colors['bg_secondary']};
+            }}
+            
+            #searchContainer {{
+                background-color: {self.colors['bg_tertiary']};
+                border-radius: 5px;
+            }}
+            
+            #searchEntry {{
+                background-color: transparent;
+                border: none;
+                color: {self.colors['text_primary']};
+                font-size: 10pt;
+                padding: 8px 0px;
+            }}
+            
+            #clearButton {{
+                background-color: transparent;
+                border: none;
+                color: {self.colors['text_secondary']};
+            }}
+            
+            #clearButton:hover {{
+                color: {self.colors['text_primary']};
+            }}
+            
+            #searchResultsLabel {{
+                color: {self.colors['text_secondary']};
+                font-size: 8pt;
+            }}
+            
+            QRadioButton {{
+                color: {self.colors['text_secondary']};
+                font-size: 8pt;
+                spacing: 5px;
+            }}
+            
+            QRadioButton::indicator {{
+                width: 13px;
+                height: 13px;
+            }}
+            
+            QRadioButton::indicator:unchecked {{
+                background-color: transparent;
+                border: 2px solid {self.colors['text_secondary']};
+                border-radius: 7px;
+            }}
+            
+            QRadioButton::indicator:checked {{
+                background-color: {self.colors['accent']};
+                border: 2px solid {self.colors['accent']};
+                border-radius: 7px;
+            }}
+            
+            #convScrollArea, #msgScrollArea {{
+                background-color: transparent;
+                border: none;
+            }}
+            
+            #chatArea {{
+                background-color: {self.colors['bg_primary']};
+            }}
+            
+            #chatHeader {{
+                background-color: {self.colors['bg_tertiary']};
+                border-bottom: 1px solid {self.colors['border']};
+            }}
+            
+            QScrollBar:vertical {{
+                background-color: {self.colors['bg_secondary']};
+                width: 10px;
+                border: none;
+            }}
+            
+            QScrollBar::handle:vertical {{
+                background-color: {self.colors['border']};
+                border-radius: 5px;
+                min-height: 20px;
+            }}
+            
+            QScrollBar::handle:vertical:hover {{
+                background-color: {self.colors['hover']};
+            }}
+            
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                border: none;
+                background: none;
+            }}
+            
+            QMenu {{
+                background-color: {self.colors['bg_secondary']};
+                color: {self.colors['text_primary']};
+                border: 1px solid {self.colors['border']};
+                padding: 5px;
+            }}
+            
+            QMenu::item {{
+                padding: 5px 20px;
+            }}
+            
+            QMenu::item:selected {{
+                background-color: {self.colors['hover']};
+            }}
+            
+            QPushButton {{
+                background-color: {self.colors['bg_tertiary']};
+                color: {self.colors['text_primary']};
+                border: none;
+                padding: 5px 10px;
+                border-radius: 5px;
+            }}
+            
+            QPushButton:hover {{
+                background-color: {self.colors['hover']};
+            }}
+            
+            QPushButton:disabled {{
+                background-color: {self.colors['bg_secondary']};
+                color: {self.colors['text_secondary']};
+            }}
+        """
+        
+        self.setStyleSheet(dark_style)
     
     def show_empty_state(self):
+        """Show empty state in message area"""
         # Clear existing widgets
-        for widget in self.msg_frame.winfo_children():
-            widget.destroy()
+        while self.msg_list_layout.count():
+            child = self.msg_list_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
         
-        # Empty state message
-        empty_label = tk.Label(self.msg_frame,
-                              text="📄 Open a message export file to get started",
-                              bg=self.colors['bg_primary'],
-                              fg=self.colors['text_secondary'],
-                              font=('Segoe UI', 12))
-        empty_label.pack(expand=True, pady=100)
+        empty_label = QLabel("📄 Open a message export file to get started")
+        empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_label.setStyleSheet("color: #8b8b8b; font-size: 12pt; padding: 100px;")
+        self.msg_list_layout.addWidget(empty_label)
         
-        # Supported formats info
+        # Supported formats
         parsers = self.parser_manager.get_available_parsers()
         if parsers:
             formats_text = "Supported formats: " + ", ".join([p.platform_name for p in parsers])
-            formats_label = tk.Label(self.msg_frame,
-                                   text=formats_text,
-                                   bg=self.colors['bg_primary'],
-                                   fg=self.colors['text_secondary'],
-                                   font=('Segoe UI', 10))
-            formats_label.pack(pady=(10, 0))
+            formats_label = QLabel(formats_text)
+            formats_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            formats_label.setStyleSheet("color: #8b8b8b; font-size: 10pt;")
+            self.msg_list_layout.addWidget(formats_label)
+        
+        self.msg_list_layout.addStretch()
     
     def open_file(self):
-        # Get file filters from parser manager
+        """Open file dialog to select a message export file"""
         file_filters = self.parser_manager.get_file_filters()
+        filter_string = ";;".join([f"{desc} ({exts})" for desc, exts in file_filters])
         
-        file_path = filedialog.askopenfilename(
-            title="Open Message Export File",
-            filetypes=file_filters
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Open Message Export File",
+            "",
+            filter_string
         )
         
         if file_path:
             self.load_file(file_path)
     
     def load_file(self, file_path: str):
+        """Load and parse the selected file"""
         try:
             # Determine which parser to use
-            selected_parser_name = self.selected_parser.get()
-            parser = None
-            
-            if selected_parser_name == "auto":
-                parser = self.parser_manager.detect_parser(file_path)
+            selected_button = self.parser_button_group.checkedButton()
+            if selected_button:
+                button_id = self.parser_button_group.id(selected_button)
+                if button_id == -1:  # Auto-detect
+                    parser = self.parser_manager.detect_parser(file_path)
+                else:
+                    parsers = self.parser_manager.get_available_parsers()
+                    parser = parsers[button_id] if button_id < len(parsers) else None
             else:
-                parser = self.parser_manager.get_parser_by_name(selected_parser_name)
-
+                parser = self.parser_manager.detect_parser(file_path)
+            
             if not parser:
-                messagebox.showerror("Error", 
+                QMessageBox.critical(self, "Error", 
                                    "No suitable parser found for this file format.\n"
                                    "Please select a different parser or use Auto-detect.")
                 return
@@ -851,26 +1211,29 @@ class ModernMessageViewer:
             
             # Update status
             filename = os.path.basename(file_path)
-            self.status_label.config(
-                text=f"📄 {filename} • {parser.platform_name} • "
-                     f"{len(conversations)} conversations"
+            self.status_bar.showMessage(
+                f"📄 {filename} • {parser.platform_name} • "
+                f"{len(conversations)} conversations"
             )
             
-            # Clear message area and disable export button
+            # Clear message area and disable buttons
             self.show_empty_state()
-            self.export_pdf_btn.config(state=tk.DISABLED)
-            self.search_conv_btn.config(state=tk.DISABLED)
+            self.export_pdf_btn.setEnabled(False)
+            self.search_conv_btn.setEnabled(False)
             
             # Clear search
             self.clear_search()
             
         except Exception as e:
-            messagebox.showerror("Error", f"Error loading file: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Error loading file: {str(e)}")
     
     def populate_conversation_list(self):
+        """Populate the conversation list"""
         # Clear existing items
-        for widget in self.conv_frame.winfo_children():
-            widget.destroy()
+        while self.conv_list_layout.count():
+            child = self.conv_list_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
         
         self.conv_items = []
         self.selected_conv_item = None
@@ -880,166 +1243,75 @@ class ModernMessageViewer:
         conversations_to_display = self.conversations
         search_results_map = {}
         
-        if self.search_query.get():
+        search_query = self.search_entry.text()
+        if search_query:
+            search_type_map = {0: 'all', 1: 'titles', 2: 'content'}
+            search_type = search_type_map.get(self.search_button_group.checkedId(), 'all')
+            
             search_results = self.search_manager.search_conversations(
                 self.conversations, 
-                self.search_query.get(),
-                self.search_scope.get()
+                search_query,
+                search_type
             )
             conversations_to_display = [r['conversation'] for r in search_results]
             search_results_map = {r['conversation'].id: r for r in search_results}
             
             # Update search results label
-            self.search_results_label.config(
-                text=f"{len(conversations_to_display)} results"
-            )
+            self.search_results_label.setText(f"{len(conversations_to_display)} results")
         else:
-            self.search_results_label.config(text="")
+            self.search_results_label.setText("")
         
         # Create conversation items
         for conversation in conversations_to_display:
             search_info = search_results_map.get(conversation.id)
-            conv_item = self.create_conversation_item(conversation, search_info)
+            conv_item = ConversationItem(conversation, search_info, self.tag_manager)
+            conv_item.clicked.connect(self.select_conversation)
+            self.conv_list_layout.addWidget(conv_item)
             self.conv_items.append(conv_item)
         
-        # Update scroll region
-        self.conv_canvas.configure(scrollregion=self.conv_canvas.bbox("all"))
-        
-        # Explicitly set focus to the conversation canvas after populating
-        if self.conv_items: # Only set focus if there are items to navigate
-            self.conv_canvas.focus_set()
-            # Select the first item by default if nothing is selected
-            if not self.selected_conv_item:
-                self.select_conversation_by_item(self.conv_items[0])
+        self.conv_list_layout.addStretch()
     
-    def create_conversation_item(self, conversation: Conversation, search_info: Dict = None):
-        # Conversation item container
-        conv_item = tk.Frame(self.conv_frame, bg=self.colors['bg_secondary'], 
-                            cursor='hand2')
-        conv_item.pack(fill=tk.X, padx=5, pady=2)
-        
-        # Store reference to conversation
-        conv_item.conversation = conversation
-        
-        # Inner frame for padding
-        inner_frame = tk.Frame(conv_item, bg=self.colors['bg_secondary'])
-        inner_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
-        # Participants
-        participants_text = ' ↔ '.join(conversation.participants[:2])
-        if len(participants_text) > 30:
-            participants_text = participants_text[:30] + '...'
-        
-        # Highlight if title matches search
-        if search_info and search_info.get('title_match'):
-            participants_label = tk.Label(inner_frame,
-                                         text=participants_text,
-                                         bg=self.colors['search_bg'],
-                                         fg=self.colors['search_highlight'],
-                                         font=self.fonts['conversation'])
-        else:
-            participants_label = tk.Label(inner_frame,
-                                         text=participants_text,
-                                         bg=self.colors['bg_secondary'],
-                                         fg=self.colors['text_primary'],
-                                         font=self.fonts['conversation'])
-        participants_label.pack(anchor='w')
-        
-        # Conversation info
-        info_text = f"{len(conversation.messages)} messages"
-        if search_info and search_info.get('matches'):
-            info_text += f" • {len(search_info['matches'])} matches"
-        if hasattr(conversation, 'metadata') and 'error' in conversation.metadata:
-            info_text = "⚠️ Parse error"
-        
-        # Count tagged messages in this conversation
-        tagged_count = sum(1 for msg in conversation.messages 
-                          if self.tag_manager.get_message_tag(conversation.id, msg.id))
-        if tagged_count > 0:
-            info_text += f" • {tagged_count} tagged"
-        
-        info_label = tk.Label(inner_frame,
-                             text=info_text,
-                             bg=self.colors['bg_secondary'],
-                             fg=self.colors['text_secondary'],
-                             font=('Segoe UI', 9))
-        info_label.pack(anchor='w', pady=(2, 0))
-        
-        # Line number
-        line_label = tk.Label(inner_frame,
-                             text=f"Line {conversation.line_number}",
-                             bg=self.colors['bg_secondary'],
-                             fg=self.colors['text_secondary'],
-                             font=('Segoe UI', 8))
-        line_label.pack(anchor='w')
-        
-        # Bind events
-        def on_enter(e):
-            if conv_item != self.selected_conv_item:
-                self._update_item_colors(conv_item, self.colors['hover'])
-        
-        def on_leave(e):
-            if conv_item != self.selected_conv_item:
-                self._update_item_colors(conv_item, self.colors['bg_secondary'])
-        
-        def on_click(e):
-            self.select_conversation_by_item(conv_item)
-        
-        for widget in [conv_item, inner_frame] + list(inner_frame.winfo_children()):
-            widget.bind('<Enter>', on_enter)
-            widget.bind('<Leave>', on_leave)
-            widget.bind('<Button-1>', on_click)
-        
-        return conv_item
-    
-    def _update_item_colors(self, conv_item, bg_color):
-        """Update colors for conversation item and all children"""
-        conv_item.configure(bg=bg_color)
-        inner_frame = conv_item.winfo_children()[0]
-        inner_frame.configure(bg=bg_color)
-        for widget in inner_frame.winfo_children():
-            if not isinstance(widget, tk.Label) or widget.cget('bg') != self.colors['search_bg']:
-                widget.configure(bg=bg_color)
-    
-    def select_conversation_by_item(self, conv_item):
+    def select_conversation(self, conversation: Conversation):
+        """Select a conversation and display its messages"""
         # Update visual selection
-        if self.selected_conv_item:
-            self._update_item_colors(self.selected_conv_item, self.colors['bg_secondary'])
-        
-        self.selected_conv_item = conv_item
-        self._update_item_colors(conv_item, self.colors['selected'])
+        for item in self.conv_items:
+            item.set_selected(item.conversation.id == conversation.id)
+            if item.conversation.id == conversation.id:
+                self.selected_conv_item = item
         
         # Update current conversation and display
-        self.current_conversation = conv_item.conversation
+        self.current_conversation = conversation
         self.display_conversation()
         
-        # Enable export button
-        self.export_pdf_btn.config(state=tk.NORMAL)
-        self.search_conv_btn.config(state=tk.NORMAL)
+        # Enable buttons
+        self.export_pdf_btn.setEnabled(True)
+        self.search_conv_btn.setEnabled(True)
     
     def display_conversation(self):
+        """Display messages for the current conversation"""
         if not self.current_conversation:
             return
         
         # Clear messages
-        for widget in self.msg_frame.winfo_children():
-            widget.destroy()
+        while self.msg_list_layout.count():
+            child = self.msg_list_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
         self.message_widgets.clear()
         
         conversation = self.current_conversation
         
         # Update header
         participants = ' ↔ '.join(conversation.participants[:2])
-        self.header_label.config(text=f"💬 {participants}")
+        self.header_label.setText(f"💬 {participants}")
         
         # Check for parsing errors
         if hasattr(conversation, 'metadata') and 'error' in conversation.metadata:
-            error_label = tk.Label(self.msg_frame,
-                                  text=f"⚠️ Error parsing conversation: {conversation.metadata['error']}",
-                                  bg=self.colors['bg_primary'],
-                                  fg='red',
-                                  font=('Segoe UI', 10))
-            error_label.pack(pady=20)
+            error_label = QLabel(f"⚠️ Error parsing conversation: {conversation.metadata['error']}")
+            error_label.setStyleSheet("color: red; font-size: 10pt;")
+            error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.msg_list_layout.addWidget(error_label)
+            self.msg_list_layout.addStretch()
             return
         
         # Display messages
@@ -1048,13 +1320,13 @@ class ModernMessageViewer:
             
             # Check if we should highlight search results
             highlight_messages = set()
-            if self.search_query.get() and hasattr(self, '_current_search_conversation'):
-                if self._current_search_conversation == conversation.id:
-                    highlight_messages = {msg.id for msg in self._current_search_messages}
+            search_query = self.conv_search_entry.text()
+            if search_query:
+                matches = self.search_manager.search_in_conversation(conversation, search_query)
+                highlight_messages = {msg.id for msg in matches}
             
             for message in conversation.messages:
                 is_sent = (message.sender_id == primary_sender)
-                has_media = bool(message.media_urls or message.urls)
                 
                 # Get timestamp with date and time
                 formatted_time = self.current_parser.format_timestamp(message.timestamp, format_type='long')
@@ -1065,485 +1337,40 @@ class ModernMessageViewer:
                 # Check if message should be highlighted
                 should_highlight = message.id in highlight_messages
                 
-                widget = self.create_message_bubble(
-                    message,
-                    formatted_time,
-                    is_sent,
-                    has_media,
-                    tag_info,
-                    should_highlight
-                )
+                # Create message bubble
+                bubble = MessageBubble(message, conversation.id, is_sent, formatted_time, tag_info)
+                bubble.contextMenuRequested.connect(self.show_message_context_menu)
+                
+                if should_highlight:
+                    bubble.set_highlighted(True)
+                
+                self.msg_list_layout.addWidget(bubble)
                 
                 # Store widget reference
-                self.message_widgets[(conversation.id, message.id)] = widget
+                self.message_widgets[(conversation.id, message.id)] = bubble
         else:
-            no_msg_label = tk.Label(self.msg_frame,
-                                   text="No messages in this conversation",
-                                   bg=self.colors['bg_primary'],
-                                   fg=self.colors['text_secondary'],
-                                   font=('Segoe UI', 10))
-            no_msg_label.pack(pady=50)
+            no_msg_label = QLabel("No messages in this conversation")
+            no_msg_label.setStyleSheet("color: #8b8b8b; font-size: 10pt;")
+            no_msg_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.msg_list_layout.addWidget(no_msg_label)
         
-        # Update scroll and scroll to bottom
-        self.msg_canvas.update_idletasks()
-        self.msg_canvas.configure(scrollregion=self.msg_canvas.bbox("all"))
-        self.msg_canvas.yview_moveto(1.0)
+        self.msg_list_layout.addStretch()
+        
+        # Scroll to bottom with a small delay to ensure layout is complete
+        QTimer.singleShot(50, lambda: self.msg_scroll_area.verticalScrollBar().setValue(
+            self.msg_scroll_area.verticalScrollBar().maximum()
+        ))
     
-    def create_message_bubble(self, message: Message, timestamp: str, is_sent: bool, 
-                            has_media: bool = False, tag_info: Dict = None, 
-                            should_highlight: bool = False):
-        # Message container
-        msg_container = tk.Frame(self.msg_frame, bg=self.colors['bg_primary'])
-        msg_container.pack(fill=tk.X, padx=20, pady=5)
-        
-        # Store message info for context menu
-        msg_container.message = message
-        msg_container.conversation_id = self.current_conversation.id
-        
-        # Bubble frame
-        bubble_frame = tk.Frame(msg_container, bg=self.colors['bg_primary'])
-        
-        if is_sent:
-            bubble_frame.pack(anchor='e')
-        else:
-            bubble_frame.pack(anchor='w')
-        
-        # Message bubble
-        bubble_bg = self.colors['bubble_sent'] if is_sent else self.colors['bubble_received']
-        
-        # Apply tag color if tagged
-        if tag_info:
-            bubble_bg = tag_info['color']
-        
-        bubble = tk.Frame(bubble_frame, bg=bubble_bg)
-        bubble.pack(fill=tk.X, ipadx=5, ipady=3)
-        
-        # Inner bubble with padding
-        inner_bubble = tk.Frame(bubble, bg=bubble_bg)
-        inner_bubble.pack(padx=2, pady=2)
-        
-        # Message text with search highlighting
-        if should_highlight and self.search_query.get():
-            # Create text widget for highlighting
-            text_widget = tk.Text(inner_bubble, bg=bubble_bg, fg='white',
-                                font=self.fonts['message'], wrap='word',
-                                width=40, height=1, bd=0, padx=12, pady=8)
-            text_widget.pack(anchor='w')
-            
-            # Insert text with highlights
-            segments = self.search_manager.highlight_text(message.text, self.search_query.get())
-            for segment, is_highlight in segments:
-                if is_highlight:
-                    text_widget.insert(tk.END, segment, 'highlight')
-                else:
-                    text_widget.insert(tk.END, segment)
-            
-            # Configure highlight tag
-            text_widget.tag_config('highlight', background=self.colors['search_highlight'],
-                                 foreground='black')
-            
-            # Calculate height
-            text_widget.update_idletasks()
-            lines = int(text_widget.index('end-1c').split('.')[0])
-            text_widget.config(height=lines, state='disabled')
-        else:
-            # Regular label
-            msg_label = tk.Label(inner_bubble,
-                                text=message.text,
-                                bg=bubble_bg,
-                                fg='white',
-                                font=self.fonts['message'],
-                                wraplength=350,
-                                justify='left',
-                                anchor='w')
-            msg_label.pack(padx=12, pady=8, anchor='w')
-        
-        # Media indicator
-        if has_media:
-            media_label = tk.Label(inner_bubble,
-                                  text="📎 Media/Links attached",
-                                  bg=bubble_bg,
-                                  fg='#cccccc',
-                                  font=('Segoe UI', 8),
-                                  anchor='w')
-            media_label.pack(padx=12, pady=(0, 8), anchor='w')
-        
-        # Tag indicator
-        if tag_info:
-            tag_label = tk.Label(inner_bubble,
-                               text=f"🏷️ {tag_info['name']}",
-                               bg=bubble_bg,
-                               fg='white',
-                               font=('Segoe UI', 8, 'bold'),
-                               anchor='w')
-            tag_label.pack(padx=12, pady=(0, 8), anchor='w')
-        
-        # Timestamp and line info
-        info_frame = tk.Frame(bubble_frame, bg=self.colors['bg_primary'])
-        info_frame.pack(anchor='e' if is_sent else 'w', pady=(2, 0))
-        
-        info_text = f"{timestamp} • Line {message.line_number}"
-        info_label = tk.Label(info_frame,
-                             text=info_text,
-                             bg=self.colors['bg_primary'],
-                             fg=self.colors['text_secondary'],
-                             font=self.fonts['timestamp'])
-        info_label.pack()
-        
-        # Bind context menu to all bubble widgets
-        def show_context_menu(event):
-            self.current_context_message = msg_container
-            self.context_menu.post(event.x_root, event.y_root)
-        
-        for widget in [bubble, inner_bubble] + list(inner_bubble.winfo_children()):
-            widget.bind('<Button-3>', show_context_menu)
-        
-        # Bind mousewheel to all message bubble widgets
-        self.bind_mousewheel_recursive(msg_container)
-        
-        return msg_container
-    
-    def add_date_separator(self):
-        separator_frame = tk.Frame(self.msg_frame, bg=self.colors['bg_primary'])
-        separator_frame.pack(fill=tk.X, pady=20)
-        
-        # Line
-        line_left = tk.Frame(separator_frame, bg=self.colors['border'], height=1)
-        line_left.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        
-        # Date
-        date_label = tk.Label(separator_frame,
-                             text="Messages",
-                             bg=self.colors['bg_primary'],
-                             fg=self.colors['text_secondary'],
-                             font=('Segoe UI', 9))
-        date_label.pack(side=tk.LEFT, padx=10)
-        
-        # Line
-        line_right = tk.Frame(separator_frame, bg=self.colors['border'], height=1)
-        line_right.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        
-        # Bind mousewheel to date separator widgets
-        self.bind_mousewheel_recursive(separator_frame)
-    
-    def get_button_styles(self, style_type: str = 'primary') -> Dict:
-        if style_type == 'primary':
-            return {
-                'bg': self.colors['accent'], 'fg': 'white', 'font': ('Segoe UI', 9),
-                'bd': 0, 'padx': 15, 'pady': 5, 'cursor': 'hand2'
-            }
-        elif style_type == 'secondary':
-            return {
-                'bg': self.colors['bg_tertiary'], 'fg': self.colors['text_primary'], 'font': ('Segoe UI', 9),
-                'bd': 0, 'padx': 10, 'pady': 3, 'cursor': 'hand2'
-            }
-        return {}
-    
-    # Search functionality
-    def focus_search(self):
-        """Focus on search entry"""
-        self.search_entry.focus_set()
-        self.search_entry.selection_range(0, tk.END)
-    
-    def perform_search(self):
-        """Perform search based on current query and scope"""
-        query = self.search_query.get()
-        if not query:
-            self.populate_conversation_list()
-            return
-        
-        # Update conversation list with search results
-        self.populate_conversation_list()
-        
-        # If we have results and a conversation is selected, highlight matches
-        if self.current_conversation and self.search_scope.get() in ('content', 'all'):
-            matches = self.search_manager.search_in_conversation(
-                self.current_conversation, query
-            )
-            if matches:
-                self._current_search_messages = matches
-                self._current_search_conversation = self.current_conversation.id
-                self.display_conversation()
-    
-    def clear_search(self):
-        """Clear search and reset view"""
-        self.search_query.set("")
-        self.search_results_label.config(text="")
-        self._current_search_messages = []
-        self._current_search_conversation = None
-        self.populate_conversation_list()
-        if self.current_conversation:
-            self.display_conversation()
-    
-    def search_in_current_conversation(self):
-        """Shows the in-conversation search bar."""
-        if not self.current_conversation:
-            return
-
-        self.header_buttons_frame.pack_forget()
-        self.conv_search_frame.pack(side=tk.RIGHT, padx=10)
-        entry = self.conv_search_frame.winfo_children()[1]
-        entry.focus_set()
-        entry.selection_range(0, tk.END)
-
-    def close_conv_search(self):
-        """Hides the in-conversation search bar and clears results."""
-        self.conv_search_frame.pack_forget()
-        self.header_buttons_frame.pack(side=tk.RIGHT)
-
-        self.conv_search_query.set("")
-        self.search_query.set("")
-        self.search_results = []
-        self.current_search_index = -1
-
-        if self.last_highlighted_widget:
-            self.last_highlighted_widget.config(relief=tk.FLAT, bd=0)
-            self.last_highlighted_widget = None
-
-        self.conv_search_stats.config(text="")
-
-        # Redraw conversation without highlights
-        self._current_search_messages = []
-        self.display_conversation()
-
-    def handle_conv_search_enter(self):
-        """Handles the Enter key in the conversation search box."""
-        if self.search_results and self.conv_search_query.get() == self.search_query.get():
-            self.find_next()
-        else:
-            self.perform_conv_search()
-
-    def perform_conv_search(self):
-        """Performs a search within the current conversation."""
-        query = self.conv_search_query.get()
-        if not query or not self.current_conversation:
-            self.search_results = []
-            self.current_search_index = -1
-            self.conv_search_stats.config(text="")
-            self._current_search_messages = []
-            self.display_conversation()
-            return
-
-        matches = self.search_manager.search_in_conversation(
-            self.current_conversation, query
-        )
-
-        self._current_search_messages = matches
-        self._current_search_conversation = self.current_conversation.id
-        self.search_query.set(query)
-        self.display_conversation()
-        self.msg_canvas.update_idletasks()
-
-        self.search_results = []
-        for msg in matches:
-            widget = self.message_widgets.get((self.current_conversation.id, msg.id))
-            if widget:
-                self.search_results.append(widget)
-
-        self.current_search_index = -1
-
-        if self.last_highlighted_widget:
-            self.last_highlighted_widget.config(relief=tk.FLAT, bd=0)
-            self.last_highlighted_widget = None
-
-        if self.search_results:
-            self.find_next()
-        else:
-            self.conv_search_stats.config(text="No results")
-
-    def find_next(self):
-        """Find next search result"""
-        self.navigate_search_results(1)
-
-    def find_previous(self):
-        """Find previous search result"""
-        self.navigate_search_results(-1)
-
-    def navigate_search_results(self, direction: int):
-        """Navigate through search results in the conversation."""
-        # If no search results, and there's a query, perform the search first.
-        # This handles cases where the conversation was reloaded and search_results became stale.
-        if not self.search_results and self.conv_search_query.get():
-            self.perform_conv_search()
-            # After perform_conv_search, self.search_results will be populated,
-            # and it will call find_next() which will re-enter this function.
-            # So, we can return here.
-            return
-
-        # If still no search results after attempting to perform search, or no query, just return.
-        if not self.search_results:
-            return
-
-        # Clear previous highlight if it exists and is still valid
-        if self.last_highlighted_widget and self.last_highlighted_widget.winfo_exists():
-            self.last_highlighted_widget.config(relief=tk.FLAT, bd=0)
-        self.last_highlighted_widget = None
-
-        # Calculate the new index
-        self.current_search_index += direction
-        if self.current_search_index >= len(self.search_results):
-            self.current_search_index = 0
-        elif self.current_search_index < 0:
-            self.current_search_index = len(self.search_results) - 1
-
-        widget_to_show = self.search_results[self.current_search_index]
-
-        # Crucial check: If the widget no longer exists, it means the conversation
-        # was redrawn *after* search_results were populated.
-        # In this case, we need to re-perform the search to get fresh widget references.
-        if not widget_to_show.winfo_exists():
-            self.perform_conv_search()
-            # perform_conv_search will call find_next() which will re-enter this function
-            # with valid widgets. So, we return from this current call.
-            return
-
-        # If we reach here, widget_to_show is a valid widget. Proceed with highlighting and scrolling.
-        self.msg_canvas.update_idletasks()
-        y = widget_to_show.winfo_y()
-        canvas_height = self.msg_canvas.winfo_height()
-
-        if canvas_height > 0:
-            scroll_region = self.msg_canvas.bbox("all")
-            if scroll_region:
-                scroll_height = scroll_region[3]
-                if scroll_height > 0:
-                    position = (y - canvas_height / 3) / scroll_height
-                    position = max(0.0, min(position, 1.0))
-                    self.msg_canvas.yview_moveto(position)
-
-        widget_to_show.config(
-            relief=tk.SOLID,
-            highlightbackground=self.colors['search_highlight'],
-            highlightcolor=self.colors['search_highlight'],
-            highlightthickness=2
-        )
-        self.last_highlighted_widget = widget_to_show
-
-        self.conv_search_stats.config(
-            text=f"{self.current_search_index + 1} of {len(self.search_results)}"
-        )
-    
-    # Tag functionality
-    def open_tag_manager(self):
-        """Open tag management dialog"""
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Manage Tags")
-        dialog.geometry("500x600")
-        dialog.configure(bg=self.colors['bg_secondary'])
-        dialog.transient(self.root)
-        dialog.grab_set()
-        
-        # Center dialog
-        dialog.update_idletasks()
-        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
-        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
-        dialog.geometry(f"+{x}+{y}")
-        
-        # Header
-        tk.Label(dialog, text="Manage Tags",
-                bg=self.colors['bg_secondary'],
-                fg=self.colors['text_primary'],
-                font=self.fonts['header']).pack(pady=(20, 10))
-        
-        # Tags list
-        tags_frame = tk.Frame(dialog, bg=self.colors['bg_secondary'])
-        tags_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
-        
-        # Create tag entries
-        tag_widgets = {}
-        
-        for i, (tag_id, tag_info) in enumerate(self.tag_manager.get_tags().items()):
-            row_frame = tk.Frame(tags_frame, bg=self.colors['bg_secondary'])
-            row_frame.pack(fill=tk.X, pady=5)
-            
-            # Color preview
-            color_btn = tk.Button(row_frame, text="",
-                                bg=tag_info['color'],
-                                width=3,
-                                bd=0,
-                                cursor='hand2')
-            color_btn.pack(side=tk.LEFT, padx=(0, 10))
-            
-            # Tag name entry
-            name_var = tk.StringVar(value=tag_info['name'])
-            name_entry = tk.Entry(row_frame, textvariable=name_var,
-                                bg=self.colors['bg_tertiary'],
-                                fg=self.colors['text_primary'],
-                                font=self.fonts['message'],
-                                width=20)
-            name_entry.pack(side=tk.LEFT, padx=(0, 10))
-            
-            # Usage count
-            usage_count = len(self.tag_manager.get_tagged_messages(tag_id))
-            usage_label = tk.Label(row_frame,
-                                 text=f"{usage_count} messages",
-                                 bg=self.colors['bg_secondary'],
-                                 fg=self.colors['text_secondary'],
-                                 font=('Segoe UI', 8))
-            usage_label.pack(side=tk.LEFT)
-            
-            tag_widgets[tag_id] = {
-                'name_var': name_var,
-                'color_btn': color_btn,
-                'color': tag_info['color']
-            }
-            
-            # Color picker
-            def pick_color(tid=tag_id):
-                color = colorchooser.askcolor(
-                    initialcolor=tag_widgets[tid]['color'],
-                    parent=dialog
-                )
-                if color[1]:  # color[1] is the hex value
-                    tag_widgets[tid]['color'] = color[1]
-                    tag_widgets[tid]['color_btn'].config(bg=color[1])
-            
-            color_btn.config(command=pick_color)
-        
-        # Buttons
-        btn_frame = tk.Frame(dialog, bg=self.colors['bg_secondary'])
-        btn_frame.pack(pady=20)
-        
-        def save_tags():
-            for tag_id, widgets in tag_widgets.items():
-                self.tag_manager.update_tag(
-                    tag_id,
-                    widgets['name_var'].get(),
-                    widgets['color']
-                )
-            self.update_tag_menu()
-            # Refresh current conversation to show updated tags
-            if self.current_conversation:
-                self.display_conversation()
-            dialog.destroy()
-        
-        tk.Button(btn_frame, text="Save",
-                 bg=self.colors['accent'],
-                 fg='white',
-                 font=self.fonts['message'],
-                 bd=0,
-                 padx=20,
-                 pady=5,
-                 command=save_tags).pack(side=tk.LEFT, padx=5)
-        
-        tk.Button(btn_frame, text="Cancel",
-                 bg=self.colors['bg_tertiary'],
-                 fg=self.colors['text_primary'],
-                 font=self.fonts['message'],
-                 bd=0,
-                 padx=20,
-                 pady=5,
-                 command=dialog.destroy).pack(side=tk.LEFT)
+    def show_message_context_menu(self, pos: QPoint, message: Message, conversation_id: str):
+        """Show context menu for a message"""
+        self.current_context_message = (message, conversation_id)
+        self.context_menu.exec(pos)
     
     def tag_current_message(self, tag_id: str):
         """Tag the currently selected message"""
         if hasattr(self, 'current_context_message'):
-            msg_container = self.current_context_message
-            self.tag_manager.tag_message(
-                msg_container.conversation_id,
-                msg_container.message.id,
-                tag_id
-            )
+            message, conversation_id = self.current_context_message
+            self.tag_manager.tag_message(conversation_id, message.id, tag_id)
             # Refresh display
             self.display_conversation()
             # Update conversation list to show tagged count
@@ -1552,30 +1379,163 @@ class ModernMessageViewer:
     def remove_tag_from_message(self):
         """Remove tag from the currently selected message"""
         if hasattr(self, 'current_context_message'):
-            msg_container = self.current_context_message
-            self.tag_manager.untag_message(
-                msg_container.conversation_id,
-                msg_container.message.id
-            )
+            message, conversation_id = self.current_context_message
+            self.tag_manager.untag_message(conversation_id, message.id)
             # Refresh display
             self.display_conversation()
             # Update conversation list to show tagged count
             self.populate_conversation_list()
     
-    def export_to_pdf(self):
+    def open_tag_manager(self):
+        """Open tag management dialog"""
+        dialog = TagManagerDialog(self.tag_manager, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.update_tag_menu()
+            # Refresh current conversation to show updated tags
+            if self.current_conversation:
+                self.display_conversation()
+    
+    # Search functionality
+    def focus_search(self):
+        """Focus on search entry"""
+        self.search_entry.setFocus()
+        self.search_entry.selectAll()
+    
+    def perform_search(self):
+        """Perform search based on current query and scope"""
+        self.populate_conversation_list()
+    
+    def clear_search(self):
+        """Clear search and reset view"""
+        self.search_entry.clear()
+        self.search_results_label.setText("")
+        self.populate_conversation_list()
+    
+    def search_in_current_conversation(self):
+        """Show in-conversation search bar"""
         if not self.current_conversation:
             return
-
-        file_path = filedialog.asksaveasfilename(
-            defaultextension=".pdf",
-            filetypes=[("PDF Documents", "*.pdf")],
-            title="Export Conversation as PDF",
-            initialfile=f"{'_'.join(self.current_conversation.participants)}_export.pdf"
+        
+        self.header_buttons_widget.hide()
+        self.conv_search_widget.show()
+        self.conv_search_entry.setFocus()
+        self.conv_search_entry.selectAll()
+    
+    def close_conv_search(self):
+        """Hide in-conversation search bar"""
+        self.conv_search_widget.hide()
+        self.header_buttons_widget.show()
+        
+        self.conv_search_entry.clear()
+        self.search_results = []
+        self.current_search_index = -1
+        
+        if self.last_highlighted_widget:
+            self.last_highlighted_widget.set_highlighted(False)
+            self.last_highlighted_widget = None
+        
+        self.conv_search_stats.setText("")
+        
+        # Redraw conversation without highlights
+        self.display_conversation()
+    
+    def handle_conv_search_enter(self):
+        """Handle Enter key in conversation search"""
+        if self.search_results and self.conv_search_entry.text():
+            self.find_next()
+        else:
+            self.perform_conv_search()
+    
+    def perform_conv_search(self):
+        """Perform search within current conversation"""
+        query = self.conv_search_entry.text()
+        if not query or not self.current_conversation:
+            self.search_results = []
+            self.current_search_index = -1
+            self.conv_search_stats.setText("")
+            self.display_conversation()
+            return
+        
+        # Find matching messages
+        matches = self.search_manager.search_in_conversation(
+            self.current_conversation, query
         )
-
+        
+        # Highlight messages
+        self.display_conversation()
+        
+        # Collect widgets for matched messages
+        self.search_results = []
+        for msg in matches:
+            widget = self.message_widgets.get((self.current_conversation.id, msg.id))
+            if widget:
+                self.search_results.append(widget)
+        
+        self.current_search_index = -1
+        
+        if self.last_highlighted_widget:
+            self.last_highlighted_widget.set_highlighted(False)
+            self.last_highlighted_widget = None
+        
+        if self.search_results:
+            self.find_next()
+        else:
+            self.conv_search_stats.setText("No results")
+    
+    def find_next(self):
+        """Find next search result"""
+        self.navigate_search_results(1)
+    
+    def find_previous(self):
+        """Find previous search result"""
+        self.navigate_search_results(-1)
+    
+    def navigate_search_results(self, direction: int):
+        """Navigate through search results"""
+        if not self.search_results:
+            if self.conv_search_entry.text():
+                self.perform_conv_search()
+            return
+        
+        # Clear previous highlight
+        if self.last_highlighted_widget:
+            self.last_highlighted_widget.set_highlighted(False)
+        
+        # Calculate new index
+        self.current_search_index += direction
+        if self.current_search_index >= len(self.search_results):
+            self.current_search_index = 0
+        elif self.current_search_index < 0:
+            self.current_search_index = len(self.search_results) - 1
+        
+        widget = self.search_results[self.current_search_index]
+        
+        # Scroll to widget
+        self.msg_scroll_area.ensureWidgetVisible(widget)
+        
+        # Highlight widget
+        widget.set_highlighted(True)
+        self.last_highlighted_widget = widget
+        
+        self.conv_search_stats.setText(
+            f"{self.current_search_index + 1} of {len(self.search_results)}"
+        )
+    
+    def export_to_pdf(self):
+        """Export current conversation to PDF"""
+        if not self.current_conversation:
+            return
+        
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Conversation as PDF",
+            f"{'_'.join(self.current_conversation.participants)}_export.pdf",
+            "PDF Documents (*.pdf)"
+        )
+        
         if not file_path:
             return
-
+        
         try:
             # Define page layout
             doc = SimpleDocTemplate(file_path, pagesize=letter,
@@ -1584,12 +1544,12 @@ class ModernMessageViewer:
             
             styles = getSampleStyleSheet()
             story = []
-
-            # --- Title Page with Tag Legend ---
+            
+            # Title Page with Tag Legend
             participants = ' & '.join(self.current_conversation.participants)
             title_style = styles['h1']
             title_style.fontName = self.pdf_font_family
-            title_style.fontSize = self.fonts['header'].cget('size')
+            title_style.fontSize = 14
             title = Paragraph(f"Conversation: {participants}", title_style)
             story.append(title)
             story.append(Spacer(1, 0.3 * inch))
@@ -1604,8 +1564,9 @@ class ModernMessageViewer:
             )
             info_text = f"Exported from {self.current_parser.platform_name}<br/>"
             info_text += f"Total Messages: {len(self.current_conversation.messages)}<br/>"
-            info_text += f"Date Range: {self.current_conversation.messages[0].timestamp.strftime('%Y-%m-%d')} to "
-            info_text += f"{self.current_conversation.messages[-1].timestamp.strftime('%Y-%m-%d')}"
+            if self.current_conversation.messages:
+                info_text += f"Date Range: {self.current_conversation.messages[0].timestamp.strftime('%Y-%m-%d')} to "
+                info_text += f"{self.current_conversation.messages[-1].timestamp.strftime('%Y-%m-%d')}"
             story.append(Paragraph(info_text, info_style))
             story.append(Spacer(1, 0.3 * inch))
             
@@ -1677,7 +1638,7 @@ class ModernMessageViewer:
                 name='MessageText',
                 parent=styles['Normal'],
                 fontName=self.pdf_font_family,
-                fontSize=self.fonts['message'].cget('size'),
+                fontSize=10,  # Fixed size for Qt6 (was self.fonts['message'].cget('size'))
                 leading=14,
                 wordWrap='CJK',
                 textColor=hex_to_color(self.colors['text_primary']),
@@ -1688,7 +1649,7 @@ class ModernMessageViewer:
                 name='Timestamp',
                 parent=styles['Normal'],
                 fontName=self.pdf_font_family,
-                fontSize=self.fonts['timestamp'].cget('size'),
+                fontSize=8,  # Fixed size for Qt6 (was self.fonts['timestamp'].cget('size'))
                 textColor=hex_to_color(self.colors['text_secondary']),
                 spaceBefore=2,
                 spaceAfter=10,
@@ -1764,15 +1725,24 @@ class ModernMessageViewer:
 
             # --- Generate PDF ---
             doc.build(story)
-            messagebox.showinfo("Success", f"Conversation successfully exported to\n{file_path}")
+            QMessageBox.information(self, "Success", f"Conversation successfully exported to\n{file_path}")
 
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to export to PDF: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to export to PDF: {e}")
+
 
 def main():
-    root = tk.Tk()
-    app = ModernMessageViewer(root)
-    root.mainloop()
+    app = QApplication(sys.argv)
+    
+    # Set application style
+    app.setStyle("Fusion")
+    
+    # Create and show main window
+    viewer = ModernMessageViewer()
+    viewer.show()
+    
+    sys.exit(app.exec())
+
 
 if __name__ == "__main__":
     main()
