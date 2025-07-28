@@ -31,18 +31,18 @@ class TagManager:
     def load_default_tags(self):
         """Load default tag set"""
         default_tags = [
-            ('Important', '#ff4444'),
-            ('Follow-up', '#ff8844'),
-            ('Question', '#ffcc44'),
-            ('Answer', '#44ff44'),
-            ('Personal', '#44ccff'),
-            ('Work', '#4488ff'),
-            ('Archive', '#8844ff'),
-            ('Funny', '#ff44ff'),
-            ('Reference', '#888888'),
-            ('Action Item', '#ff6666'),
-            ('Decision', '#66ff66'),
-            ('Idea', '#66ffff'),
+            ('Bookmark', '#44ff44'),
+            ('Evidence', '#ff4444'),
+            ('Of interest', '#ffcc44'),
+            ('Exceptions', '#ff8844'),
+            ('Possible child abuse content', '#4488ff'),
+            ('Possible nudity', '#8844ff'),
+            ('Blank 1', "#212379"),
+            ('Blank 2', '#ff44ff'),
+            ('Blank 3', '#888888'),
+            ('Blank 4', "#af5e5e"),
+            ('Blank 5', "#4e2d0e"),
+            ('Blank 6', '#66ffff'),
         ]
         
         for i, (name, color) in enumerate(default_tags):
@@ -1428,7 +1428,7 @@ class ModernMessageViewer:
         """Open tag management dialog"""
         dialog = tk.Toplevel(self.root)
         dialog.title("Manage Tags")
-        dialog.geometry("500x400")
+        dialog.geometry("500x600")
         dialog.configure(bg=self.colors['bg_secondary'])
         dialog.transient(self.root)
         dialog.grab_set()
