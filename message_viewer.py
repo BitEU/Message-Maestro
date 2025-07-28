@@ -47,6 +47,7 @@ class GPUAcceleratedScrollArea(QScrollArea):
         
         # Enable OpenGL viewport for GPU acceleration
         self.gl_widget = QOpenGLWidget()
+        self.gl_widget.setStyleSheet("background-color: #1a1a1a;")  # Set to dark gray
         self.setViewport(self.gl_widget)
         
         # Enable smooth scrolling
@@ -839,6 +840,7 @@ class ModernMessageViewer(QMainWindow):
         self.conv_scroll_area.setObjectName("convScrollArea")
         
         self.conv_list_widget = QWidget()
+        self.conv_list_widget.setObjectName("conv_list_widget")  # Add this line
         self.conv_list_layout = QVBoxLayout(self.conv_list_widget)
         self.conv_list_layout.setContentsMargins(10, 10, 10, 10)
         self.conv_list_layout.setSpacing(5)
@@ -921,6 +923,7 @@ class ModernMessageViewer(QMainWindow):
         self.msg_scroll_area.setObjectName("msgScrollArea")
         
         self.msg_list_widget = QWidget()
+        self.msg_list_widget.setObjectName("msg_list_widget")  # Add this line
         self.msg_list_layout = QVBoxLayout(self.msg_list_widget)
         self.msg_list_layout.setContentsMargins(20, 10, 20, 10)
         self.msg_list_layout.setSpacing(5)
@@ -999,6 +1002,56 @@ class ModernMessageViewer(QMainWindow):
                 background-color: {self.colors['bg_primary']};
             }}
             
+            QWidget {{
+                background-color: {self.colors['bg_primary']};
+                color: {self.colors['text_primary']};
+            }}
+            
+            QDialog {{
+                background-color: {self.colors['bg_secondary']};
+                color: {self.colors['text_primary']};
+            }}
+            
+            QLabel {{
+                background-color: transparent;
+                color: {self.colors['text_primary']};
+            }}
+            
+            QLineEdit {{
+                background-color: {self.colors['bg_tertiary']};
+                color: {self.colors['text_primary']};
+                border: 1px solid {self.colors['border']};
+                padding: 5px;
+                border-radius: 3px;
+            }}
+            
+            QLineEdit:focus {{
+                border-color: {self.colors['accent']};
+            }}
+            
+            QTextEdit {{
+                background-color: {self.colors['bg_tertiary']};
+                color: {self.colors['text_primary']};
+                border: 1px solid {self.colors['border']};
+                padding: 5px;
+                border-radius: 3px;
+            }}
+            
+            QGroupBox {{
+                background-color: {self.colors['bg_secondary']};
+                color: {self.colors['text_primary']};
+                border: 1px solid {self.colors['border']};
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }}
+            
+            QGroupBox::title {{
+                color: {self.colors['text_primary']};
+                subcontrol-origin: margin;
+                padding: 0 5px;
+            }}
+            
             #sidebar {{
                 background-color: {self.colors['bg_secondary']};
             }}
@@ -1038,17 +1091,20 @@ class ModernMessageViewer(QMainWindow):
             #searchResultsLabel {{
                 color: {self.colors['text_secondary']};
                 font-size: 8pt;
+                background-color: transparent;
             }}
             
             QRadioButton {{
                 color: {self.colors['text_secondary']};
                 font-size: 8pt;
                 spacing: 5px;
+                background-color: transparent;
             }}
             
             QRadioButton::indicator {{
                 width: 13px;
                 height: 13px;
+                background-color: transparent;
             }}
             
             QRadioButton::indicator:unchecked {{
@@ -1066,6 +1122,14 @@ class ModernMessageViewer(QMainWindow):
             #convScrollArea, #msgScrollArea {{
                 background-color: transparent;
                 border: none;
+            }}
+            
+            #convScrollArea QWidget {{
+                background-color: {self.colors['bg_secondary']};
+            }}
+            
+            #msgScrollArea QWidget {{
+                background-color: {self.colors['bg_primary']};
             }}
             
             #chatArea {{
@@ -1098,6 +1162,27 @@ class ModernMessageViewer(QMainWindow):
                 background: none;
             }}
             
+            QScrollBar:horizontal {{
+                background-color: {self.colors['bg_secondary']};
+                height: 10px;
+                border: none;
+            }}
+            
+            QScrollBar::handle:horizontal {{
+                background-color: {self.colors['border']};
+                border-radius: 5px;
+                min-width: 20px;
+            }}
+            
+            QScrollBar::handle:horizontal:hover {{
+                background-color: {self.colors['hover']};
+            }}
+            
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+                border: none;
+                background: none;
+            }}
+            
             QMenu {{
                 background-color: {self.colors['bg_secondary']};
                 color: {self.colors['text_primary']};
@@ -1107,6 +1192,7 @@ class ModernMessageViewer(QMainWindow):
             
             QMenu::item {{
                 padding: 5px 20px;
+                background-color: transparent;
             }}
             
             QMenu::item:selected {{
@@ -1129,7 +1215,75 @@ class ModernMessageViewer(QMainWindow):
                 background-color: {self.colors['bg_secondary']};
                 color: {self.colors['text_secondary']};
             }}
+            
+            QSplitter {{
+                background-color: {self.colors['bg_primary']};
+            }}
+            
+            QSplitter::handle {{
+                background-color: {self.colors['border']};
+            }}
+            
+            QSplitter::handle:horizontal {{
+                width: 3px;
+            }}
+            
+            QSplitter::handle:vertical {{
+                height: 3px;
+            }}
+            
+            QStatusBar {{
+                background-color: {self.colors['bg_tertiary']};
+                color: {self.colors['text_secondary']};
+                font-size: 9pt;
+                border-top: 1px solid {self.colors['border']};
+            }}
+            
+            QFrame {{
+                background-color: #1a1a1a;
+            }}
+            
+            /* Force specific widgets to have dark backgrounds */
+            ConversationItem {{
+                background-color: {self.colors['bg_secondary']};
+            }}
+            
+            MessageBubble {{
+                background-color: #1a1a1a;
+            }}
+            
+            /* Override any OpenGL widget backgrounds */
+            QOpenGLWidget {{
+                background-color: #1a1a1a;
+            }}
+            
+            /* Fix viewport backgrounds */
+            QAbstractScrollArea::viewport {{
+                background-color: #1a1a1a;
+            }}
+            
+            /* Fix any remaining white backgrounds */
+            QWidget[objectName="conv_list_widget"] {{
+                background-color: {self.colors['bg_secondary']};
+            }}
+            
+            QWidget[objectName="msg_list_widget"] {{
+                background-color: {self.colors['bg_primary']};
+            }}
         """
+
+            # Also set application-wide palette to ensure consistency
+        palette = self.palette()
+        palette.setColor(QPalette.ColorRole.Window, QColor(self.colors['bg_primary']))
+        palette.setColor(QPalette.ColorRole.WindowText, QColor(self.colors['text_primary']))
+        palette.setColor(QPalette.ColorRole.Base, QColor(self.colors['bg_secondary']))
+        palette.setColor(QPalette.ColorRole.AlternateBase, QColor(self.colors['bg_tertiary']))
+        palette.setColor(QPalette.ColorRole.Text, QColor(self.colors['text_primary']))
+        palette.setColor(QPalette.ColorRole.Button, QColor(self.colors['bg_tertiary']))
+        palette.setColor(QPalette.ColorRole.ButtonText, QColor(self.colors['text_primary']))
+        palette.setColor(QPalette.ColorRole.Highlight, QColor(self.colors['accent']))
+        palette.setColor(QPalette.ColorRole.HighlightedText, QColor(self.colors['text_primary']))
+        self.setPalette(palette)
         
         self.setStyleSheet(dark_style)
     
