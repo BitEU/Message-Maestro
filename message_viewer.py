@@ -20,7 +20,7 @@ from PyQt6.QtCore import (
 )
 from PyQt6.QtGui import (
     QFont, QFontDatabase, QPalette, QColor, QAction, QKeySequence,
-    QPainter, QPen, QBrush, QLinearGradient, QPixmap, QPainterPath
+    QPainter, QPen, QBrush, QLinearGradient, QPixmap, QPainterPath, QIcon
 )
 from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 from PyQt6.QtOpenGL import QOpenGLFramebufferObject
@@ -136,27 +136,25 @@ class MessageBubble(QFrame):
         # Actual bubble
         self.bubble = QFrame()
         self.bubble.setObjectName("messageBubble")
-        bubble_inner_layout = QVBoxLayout(self.bubble)
-        bubble_inner_layout.setContentsMargins(12, 8, 12, 8)
+        self.bubble_inner_layout = QVBoxLayout(self.bubble)
+        self.bubble_inner_layout.setContentsMargins(12, 8, 12, 8)
         
         # Message text
         self.text_label = QLabel(self.message.text)
         self.text_label.setWordWrap(True)
         self.text_label.setMaximumWidth(350)
         self.text_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        bubble_inner_layout.addWidget(self.text_label)
+        self.bubble_inner_layout.addWidget(self.text_label)
         
-        # Tag indicator
-        if self.tag_info:
-            tag_label = QLabel(f"🏷️ {self.tag_info['name']}")
-            tag_label.setObjectName("tagLabel")
-            bubble_inner_layout.addWidget(tag_label)
+        # Tag indicator (initially None, will be set by update_tag_display)
+        self.tag_label = None
+        self.update_tag_display()
         
         # Media indicator
         if self.message.media_urls or self.message.urls:
             media_label = QLabel("📎 Media/Links attached")
             media_label.setObjectName("mediaLabel")
-            bubble_inner_layout.addWidget(media_label)
+            self.bubble_inner_layout.addWidget(media_label)
         
         bubble_layout.addWidget(self.bubble)
         
@@ -182,6 +180,27 @@ class MessageBubble(QFrame):
         
         layout.addWidget(timestamp_container)
         
+        self.update_style()
+    
+    def update_tag_display(self):
+        """Update the tag display based on current tag_info"""
+        # Remove existing tag label if it exists
+        if self.tag_label:
+            self.bubble_inner_layout.removeWidget(self.tag_label)
+            self.tag_label.deleteLater()
+            self.tag_label = None
+        
+        # Add new tag label if tag_info exists
+        if self.tag_info:
+            self.tag_label = QLabel(f"🏷️ {self.tag_info['name']}")
+            self.tag_label.setObjectName("tagLabel")
+            # Insert after text label but before media label
+            self.bubble_inner_layout.insertWidget(1, self.tag_label)
+    
+    def set_tag_info(self, tag_info: Dict = None):
+        """Update the tag information and refresh display"""
+        self.tag_info = tag_info
+        self.update_tag_display()
         self.update_style()
     
     def update_style(self):
@@ -991,10 +1010,15 @@ class ModernMessageViewer(QMainWindow):
         # Tag submenu
         self.tag_menu = QMenu("Tag Message", self)
         self.context_menu.addMenu(self.tag_menu)
-        self.context_menu.addSeparator()
         
-        remove_tag_action = self.context_menu.addAction("Remove Tag")
-        remove_tag_action.triggered.connect(self.remove_tag_from_message)
+        # Remove tag action (will be dynamically shown/hidden)
+        self.context_menu.addSeparator()
+        self.remove_tag_action = self.context_menu.addAction("Remove Tag")
+        self.remove_tag_action.triggered.connect(self.remove_tag_from_message)
+        
+        # Current tag info action (will be dynamically updated)
+        self.current_tag_action = self.context_menu.addAction("Current: None")
+        self.current_tag_action.setEnabled(False)  # Just for display, not clickable
         
         self.update_tag_menu()
     
@@ -1002,18 +1026,40 @@ class ModernMessageViewer(QMainWindow):
         """Update tag submenu"""
         self.tag_menu.clear()
         
+        # Add a header to the tag menu
+        header_action = self.tag_menu.addAction("Available Tags:")
+        header_action.setEnabled(False)
+        self.tag_menu.addSeparator()
+        
         for tag_id, tag_info in self.tag_manager.get_tags().items():
-            action = self.tag_menu.addAction(f"● {tag_info['name']}")
+            action = self.tag_menu.addAction(tag_info['name'])
             action.setData(tag_id)
             action.triggered.connect(lambda checked, tid=tag_id: self.tag_current_message(tid))
             
-            # Set color for the action
-            action.setIconText(f"● {tag_info['name']}")
+            # Create a colored icon for the action
+            icon = self.create_colored_icon(tag_info['color'])
+            action.setIcon(icon)
         
         self.tag_menu.addSeparator()
         manage_tags_action = self.tag_menu.addAction("Manage Tags...")
         manage_tags_action.triggered.connect(self.open_tag_manager)
     
+    def create_colored_icon(self, color_hex: str) -> QIcon:
+        """Create a colored square icon for menu items"""
+        # Create a 16x16 pixmap
+        pixmap = QPixmap(16, 16)
+        pixmap.fill(QColor("transparent"))
+        
+        # Paint a colored square
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setBrush(QBrush(QColor(color_hex)))
+        painter.setPen(QPen(QColor("#ffffff"), 1))  # White border
+        painter.drawRoundedRect(2, 2, 12, 12, 2, 2)  # Rounded square with margin
+        painter.end()
+        
+        return QIcon(pixmap)
+
     def apply_dark_theme(self):
         """Apply dark theme to the application"""
         dark_style = f"""
@@ -1512,15 +1558,45 @@ class ModernMessageViewer(QMainWindow):
     def show_message_context_menu(self, pos: QPoint, message: Message, conversation_id: str):
         """Show context menu for a message"""
         self.current_context_message = (message, conversation_id)
+        
+        # Check if message has a tag
+        current_tag = self.tag_manager.get_message_tag(conversation_id, message.id)
+        
+        # Update context menu based on current tag state
+        if current_tag:
+            self.remove_tag_action.setVisible(True)
+            self.current_tag_action.setVisible(True)
+            self.current_tag_action.setText(f"Current: {current_tag['name']}")
+            # Create colored icon for current tag
+            icon = self.create_colored_icon(current_tag['color'])
+            self.current_tag_action.setIcon(icon)
+        else:
+            self.remove_tag_action.setVisible(False)
+            self.current_tag_action.setVisible(False)
+        
         self.context_menu.exec(pos)
     
     def tag_current_message(self, tag_id: str):
         """Tag the currently selected message"""
         if hasattr(self, 'current_context_message'):
             message, conversation_id = self.current_context_message
+            
+            # Check if message already has a tag
+            current_tag = self.tag_manager.get_message_tag(conversation_id, message.id)
+            
+            # If message already has the same tag, don't do anything
+            if current_tag and current_tag['id'] == tag_id:
+                return
+            
+            # Apply the new tag (this will automatically replace any existing tag)
             self.tag_manager.tag_message(conversation_id, message.id, tag_id)
-            # Refresh display
-            self.display_conversation()
+            
+            # Update the specific message widget instead of redrawing everything
+            widget_key = (conversation_id, message.id)
+            if widget_key in self.message_widgets:
+                new_tag_info = self.tag_manager.get_message_tag(conversation_id, message.id)
+                self.message_widgets[widget_key].set_tag_info(new_tag_info)
+            
             # Update conversation list to show tagged count
             self.populate_conversation_list()
     
@@ -1529,8 +1605,12 @@ class ModernMessageViewer(QMainWindow):
         if hasattr(self, 'current_context_message'):
             message, conversation_id = self.current_context_message
             self.tag_manager.untag_message(conversation_id, message.id)
-            # Refresh display
-            self.display_conversation()
+            
+            # Update the specific message widget instead of redrawing everything
+            widget_key = (conversation_id, message.id)
+            if widget_key in self.message_widgets:
+                self.message_widgets[widget_key].set_tag_info(None)
+            
             # Update conversation list to show tagged count
             self.populate_conversation_list()
     
