@@ -27,29 +27,68 @@ class SnapchatParser(BaseParser):
 
     def can_parse(self, file_path: str, content: str) -> bool:
         """Check if this is a Snapchat CSV export file"""
-        # Check for characteristic Snapchat headers
-        snapchat_headers = [
-            'content_type', 'message_type', 'conversation_id', 
-            'sender_username', 'recipient_username', 'text',
-            'is_saved', 'is_one_on_one', 'timestamp'
-        ]
+        # Must be a .csv file
+        if not file_path.lower().endswith('.csv'):
+            return False
+            
+        # Check for essential Snapchat CSV headers (not all required, but key ones)
+        required_headers = ['content_type', 'message_type', 'conversation_id', 'timestamp']
+        optional_headers = ['sender_username', 'recipient_username', 'text', 'is_saved', 'is_one_on_one']
         
-        # Check if most of these headers are present
-        headers_found = sum(1 for header in snapchat_headers if header in content)
-        return headers_found >= 7
+        # Look for a CSV header line containing the required headers
+        lines = content.split('\n')
+        for line in lines:
+            # Skip empty lines and legend/description lines
+            if not line.strip() or line.strip().startswith('"'):
+                continue
+                
+            # Check if this line contains all required headers
+            if all(header in line for header in required_headers):
+                # Also check that it has some optional headers (to be more specific)
+                optional_found = sum(1 for header in optional_headers if header in line)
+                if optional_found >= 3:  # At least 3 optional headers should be present
+                    return True
+        
+        return False
 
     def parse_file(self, file_path: str) -> Tuple[List[Conversation], List[str]]:
         """Parse Snapchat CSV export file"""
+        # Double-check that this is a CSV file before attempting to parse
+        if not file_path.lower().endswith('.csv'):
+            raise Exception(f"Snapchat parser can only handle .csv files, but received: {file_path}")
+            
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                file_lines = f.readlines()
+            # Try different encodings as Snapchat exports may use various encodings
+            encodings_to_try = ['utf-8', 'utf-8-sig', 'windows-1252', 'iso-8859-1', 'cp1252']
+            file_lines = None
+            content = None
+            
+            for encoding in encodings_to_try:
+                try:
+                    with open(file_path, 'r', encoding=encoding, errors='ignore') as f:
+                        file_lines = f.readlines()
+                        content = ''.join(file_lines)
+                    break  # Success, stop trying other encodings
+                except UnicodeDecodeError:
+                    continue  # Try next encoding
+                    
+            if file_lines is None:
+                raise Exception("Could not read file with any supported encoding")
+                
         except Exception as e:
             raise Exception(f"Error reading file: {str(e)}")
+            
+        # Verify this file can actually be parsed by this parser
+        if not self.can_parse(file_path, content):
+            raise Exception(f"File does not appear to be a valid Snapchat CSV export: {file_path}")
 
         # Find where the actual CSV data starts (after the legend)
         csv_start_index = 0
         for i, line in enumerate(file_lines):
-            if line.strip().startswith('content_type,message_type,conversation_id'):
+            # Look for the CSV header line containing required fields
+            if ('content_type' in line and 'message_type' in line and 
+                'conversation_id' in line and 'timestamp' in line and
+                line.count(',') >= 10):  # Should have many comma-separated fields
                 csv_start_index = i
                 break
 

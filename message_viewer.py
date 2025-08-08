@@ -830,17 +830,26 @@ class ModernMessageViewer(QMainWindow):
         
         self.parser_button_group = QButtonGroup()
         
-        # Auto-detect option
+        # Auto-detect option (use ID 999 to avoid conflicts)
         auto_radio = QRadioButton("Auto-detect")
         auto_radio.setChecked(True)
-        self.parser_button_group.addButton(auto_radio, -1)
+        self.parser_button_group.addButton(auto_radio, 999)  # Use 999 as auto-detect ID
         parser_layout.addWidget(auto_radio)
+        print(f"DEBUG: Added Auto-detect button with ID: {self.parser_button_group.id(auto_radio)}")
         
-        # Available parsers
-        for i, parser in enumerate(self.parser_manager.get_available_parsers()):
+        # Available parsers (start from ID 0)
+        parsers = self.parser_manager.get_available_parsers()
+        for i, parser in enumerate(parsers):
             radio = QRadioButton(parser.platform_name)
             self.parser_button_group.addButton(radio, i)
             parser_layout.addWidget(radio)
+            print(f"DEBUG: Added {parser.platform_name} button with ID: {self.parser_button_group.id(radio)}")
+        
+        # Verify button assignments
+        print(f"DEBUG: Total buttons in group: {len(self.parser_button_group.buttons())}")
+        for button in self.parser_button_group.buttons():
+            button_id = self.parser_button_group.id(button)
+            print(f"DEBUG: Button '{button.text()}' has ID: {button_id}")
         
         parent_layout.addWidget(parser_widget)
     
@@ -1308,15 +1317,23 @@ class ModernMessageViewer(QMainWindow):
         try:
             # Determine which parser to use
             selected_button = self.parser_button_group.checkedButton()
+            print(f"DEBUG: Selected button: {selected_button.text() if selected_button else 'None'}")
+            
             if selected_button:
                 button_id = self.parser_button_group.id(selected_button)
-                if button_id == -1:  # Auto-detect
+                print(f"DEBUG: Button ID: {button_id}")
+                
+                if button_id == 999:  # Auto-detect (changed from -1 to 999)
                     parser = self.parser_manager.detect_parser(file_path)
+                    print(f"DEBUG: Auto-detect selected parser: {parser.platform_name if parser else 'None'}")
                 else:
                     parsers = self.parser_manager.get_available_parsers()
+                    print(f"DEBUG: Available parsers: {[p.platform_name for p in parsers]}")
                     parser = parsers[button_id] if button_id < len(parsers) else None
+                    print(f"DEBUG: Manual parser selected (ID {button_id}): {parser.platform_name if parser else 'None'}")
             else:
                 parser = self.parser_manager.detect_parser(file_path)
+                print(f"DEBUG: No button selected, using auto-detect: {parser.platform_name if parser else 'None'}")
             
             if not parser:
                 QMessageBox.critical(self, "Error", 

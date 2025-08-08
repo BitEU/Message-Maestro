@@ -26,17 +26,41 @@ class KikMessengerParser(BaseParser):
 
     def can_parse(self, file_path: str, content: str) -> bool:
         """Check if this is a Kik Messenger CSV export file"""
-        # Check for characteristic headers
+        # Must be a .csv file
+        if not file_path.lower().endswith('.csv'):
+            return False
+            
+        # Check for the exact Kik CSV header pattern
+        # Look for a header line containing all required fields
         expected_headers = ['msg_id', 'sender_jid', 'receiver_jid', 'chat_type', 'msg', 'sent_at']
-        return all(header in content for header in expected_headers)
+        
+        # Split content into lines and check if any line contains all headers as CSV format
+        lines = content.split('\n')
+        for line in lines:
+            # Check if this line looks like a CSV header with all required fields
+            if all(header in line for header in expected_headers):
+                # Additional check: should have commas separating the headers
+                if line.count(',') >= len(expected_headers) - 1:
+                    return True
+        
+        return False
 
     def parse_file(self, file_path: str) -> Tuple[List[Conversation], List[str]]:
         """Parse Kik Messenger CSV export file"""
+        # Double-check that this is a CSV file before attempting to parse
+        if not file_path.lower().endswith('.csv'):
+            raise Exception(f"Kik parser can only handle .csv files, but received: {file_path}")
+            
         try:
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 file_lines = f.readlines()
+                content = ''.join(file_lines)
         except Exception as e:
             raise Exception(f"Error reading file: {str(e)}")
+            
+        # Verify this file can actually be parsed by this parser
+        if not self.can_parse(file_path, content):
+            raise Exception(f"File does not appear to be a valid Kik CSV export: {file_path}")
 
         # Use DictReader to easily access columns by name
         reader = csv.DictReader(file_lines)
