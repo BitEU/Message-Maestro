@@ -1429,9 +1429,12 @@ class ModernMessageViewer(QMainWindow):
             if child.widget():
                 child.widget().deleteLater()
         
+        # Preserve currently selected conversation (if any)
+        selected_conv_id = self.current_conversation.id if self.current_conversation else None
+        
         self.conv_items = []
+        # Do NOT reset self.current_conversation here; it breaks export/search state
         self.selected_conv_item = None
-        self.current_conversation = None
         
         # Filter conversations based on search
         conversations_to_display = self.conversations
@@ -1462,6 +1465,11 @@ class ModernMessageViewer(QMainWindow):
             conv_item.clicked.connect(self.select_conversation)
             self.conv_list_layout.addWidget(conv_item)
             self.conv_items.append(conv_item)
+            
+            # Restore selection highlight if this is the previously selected conversation
+            if selected_conv_id and conversation.id == selected_conv_id:
+                conv_item.set_selected(True)
+                self.selected_conv_item = conv_item
         
         self.conv_list_layout.addStretch()
     
