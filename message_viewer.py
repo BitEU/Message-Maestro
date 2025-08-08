@@ -197,30 +197,35 @@ class MessageBubble(QFrame):
         if self.is_highlighted:
             highlight_style = f"border: 2px solid #ffcc00;"
         
+        # Apply styles with higher specificity to override global theme
         self.bubble.setStyleSheet(f"""
-            #messageBubble {{
-                background-color: {bubble_color};
+            QFrame#messageBubble {{
+                background-color: {bubble_color} !important;
                 border-radius: 8px;
                 {highlight_style}
             }}
-            #messageBubble QLabel {{
+            QFrame#messageBubble QLabel {{
                 color: white;
                 font-size: 10pt;
+                background-color: transparent;
             }}
-            #tagLabel {{
+            QFrame#messageBubble QLabel#tagLabel {{
                 font-size: 8pt;
                 font-weight: bold;
+                background-color: transparent;
             }}
-            #mediaLabel {{
+            QFrame#messageBubble QLabel#mediaLabel {{
                 color: #cccccc;
                 font-size: 8pt;
+                background-color: transparent;
             }}
         """)
         
         self.setStyleSheet("""
-            #timestampLabel {
+            QLabel#timestampLabel {
                 color: #8b8b8b;
                 font-size: 8pt;
+                background-color: transparent;
             }
         """)
     
@@ -397,7 +402,7 @@ class ConversationItem(QFrame):
     
     def update_style(self):
         """Update item styling based on state"""
-        bg_color = "#1d9bf0" if self.is_selected else "#1a1a1a"
+        bg_color = "#1d9bf0" if self.is_selected else "transparent"
         hover_color = "#353535" if not self.is_selected else "#1d9bf0"
         
         highlight_style = ""
@@ -408,23 +413,28 @@ class ConversationItem(QFrame):
             ConversationItem {{
                 background-color: {bg_color};
                 border-radius: 5px;
+                padding: 5px;
+                margin: 2px;
             }}
             ConversationItem:hover {{
                 background-color: {hover_color};
             }}
-            #participantsLabel {{
+            ConversationItem QLabel#participantsLabel {{
                 color: white;
                 font-size: 11pt;
                 font-weight: 500;
+                background-color: transparent;
                 {highlight_style}
             }}
-            #infoLabel {{
+            ConversationItem QLabel#infoLabel {{
                 color: #8b8b8b;
                 font-size: 9pt;
+                background-color: transparent;
             }}
-            #lineLabel {{
+            ConversationItem QLabel#lineLabel {{
                 color: #8b8b8b;
                 font-size: 8pt;
+                background-color: transparent;
             }}
         """)
     
@@ -1002,11 +1012,6 @@ class ModernMessageViewer(QMainWindow):
                 background-color: {self.colors['bg_primary']};
             }}
             
-            QWidget {{
-                background-color: {self.colors['bg_primary']};
-                color: {self.colors['text_primary']};
-            }}
-            
             QDialog {{
                 background-color: {self.colors['bg_secondary']};
                 color: {self.colors['text_primary']};
@@ -1052,6 +1057,7 @@ class ModernMessageViewer(QMainWindow):
                 padding: 0 5px;
             }}
             
+            /* Sidebar specific */
             #sidebar {{
                 background-color: {self.colors['bg_secondary']};
             }}
@@ -1065,35 +1071,7 @@ class ModernMessageViewer(QMainWindow):
                 background-color: {self.colors['bg_secondary']};
             }}
             
-            #searchContainer {{
-                background-color: {self.colors['bg_tertiary']};
-                border-radius: 5px;
-            }}
-            
-            #searchEntry {{
-                background-color: transparent;
-                border: none;
-                color: {self.colors['text_primary']};
-                font-size: 10pt;
-                padding: 8px 0px;
-            }}
-            
-            #clearButton {{
-                background-color: transparent;
-                border: none;
-                color: {self.colors['text_secondary']};
-            }}
-            
-            #clearButton:hover {{
-                color: {self.colors['text_primary']};
-            }}
-            
-            #searchResultsLabel {{
-                color: {self.colors['text_secondary']};
-                font-size: 8pt;
-                background-color: transparent;
-            }}
-            
+            /* Radio buttons */
             QRadioButton {{
                 color: {self.colors['text_secondary']};
                 font-size: 8pt;
@@ -1119,19 +1097,26 @@ class ModernMessageViewer(QMainWindow):
                 border-radius: 7px;
             }}
             
-            #convScrollArea, #msgScrollArea {{
-                background-color: transparent;
+            /* Scroll areas */
+            #convScrollArea {{
+                background-color: {self.colors['bg_secondary']};
                 border: none;
             }}
             
-            #convScrollArea QWidget {{
+            #msgScrollArea {{
+                background-color: {self.colors['bg_primary']};
+                border: none;
+            }}
+            
+            #conv_list_widget {{
                 background-color: {self.colors['bg_secondary']};
             }}
             
-            #msgScrollArea QWidget {{
+            #msg_list_widget {{
                 background-color: {self.colors['bg_primary']};
             }}
             
+            /* Chat area */
             #chatArea {{
                 background-color: {self.colors['bg_primary']};
             }}
@@ -1141,6 +1126,7 @@ class ModernMessageViewer(QMainWindow):
                 border-bottom: 1px solid {self.colors['border']};
             }}
             
+            /* Scrollbars */
             QScrollBar:vertical {{
                 background-color: {self.colors['bg_secondary']};
                 width: 10px;
@@ -1183,15 +1169,16 @@ class ModernMessageViewer(QMainWindow):
                 background: none;
             }}
             
+            /* Menus */
             QMenu {{
-                background-color: {self.colors['bg_secondary']};
+                background-color: {self.colors['bg_tertiary']};
                 color: {self.colors['text_primary']};
                 border: 1px solid {self.colors['border']};
                 padding: 5px;
             }}
             
             QMenu::item {{
-                padding: 5px 20px;
+                padding: 5px 20px 5px 30px;
                 background-color: transparent;
             }}
             
@@ -1199,6 +1186,11 @@ class ModernMessageViewer(QMainWindow):
                 background-color: {self.colors['hover']};
             }}
             
+            QMenu::icon {{
+                padding-left: 10px;
+            }}
+            
+            /* Buttons */
             QPushButton {{
                 background-color: {self.colors['bg_tertiary']};
                 color: {self.colors['text_primary']};
@@ -1216,6 +1208,7 @@ class ModernMessageViewer(QMainWindow):
                 color: {self.colors['text_secondary']};
             }}
             
+            /* Splitter */
             QSplitter {{
                 background-color: {self.colors['bg_primary']};
             }}
@@ -1232,6 +1225,7 @@ class ModernMessageViewer(QMainWindow):
                 height: 3px;
             }}
             
+            /* Status bar */
             QStatusBar {{
                 background-color: {self.colors['bg_tertiary']};
                 color: {self.colors['text_secondary']};
@@ -1239,40 +1233,23 @@ class ModernMessageViewer(QMainWindow):
                 border-top: 1px solid {self.colors['border']};
             }}
             
-            QFrame {{
-                background-color: #1a1a1a;
-            }}
-            
-            /* Force specific widgets to have dark backgrounds */
-            ConversationItem {{
-                background-color: {self.colors['bg_secondary']};
-            }}
-            
+            /* Message bubbles specific styling */
             MessageBubble {{
-                background-color: #1a1a1a;
+                background-color: transparent;
             }}
             
-            /* Override any OpenGL widget backgrounds */
+            /* OpenGL widget backgrounds */
             QOpenGLWidget {{
-                background-color: #1a1a1a;
-            }}
-            
-            /* Fix viewport backgrounds */
-            QAbstractScrollArea::viewport {{
-                background-color: #1a1a1a;
-            }}
-            
-            /* Fix any remaining white backgrounds */
-            QWidget[objectName="conv_list_widget"] {{
-                background-color: {self.colors['bg_secondary']};
-            }}
-            
-            QWidget[objectName="msg_list_widget"] {{
                 background-color: {self.colors['bg_primary']};
+            }}
+            
+            /* Viewport backgrounds */
+            QAbstractScrollArea::viewport {{
+                background-color: transparent;
             }}
         """
 
-            # Also set application-wide palette to ensure consistency
+        # Also set application-wide palette to ensure consistency
         palette = self.palette()
         palette.setColor(QPalette.ColorRole.Window, QColor(self.colors['bg_primary']))
         palette.setColor(QPalette.ColorRole.WindowText, QColor(self.colors['text_primary']))

@@ -1,0 +1,10 @@
+1. Keyboard Shortcuts Enhancement
+    a. CTRL+1, CTRL+2, etc for tagging, plus the ability to assign spacebar to one specific tag of the user's choosing
+2. Save and loading project (saving which and what items were tagged)
+    a. Also an autosave every five feature to a temp folder that can be recovered if program unexpectably closes/crashes/power loss
+3. Sentiment analysis and summary
+    a. Needs to be done LOCALLY. Should be an opt-in setting. Give warning if user has <4GB VRAM
+    b. Use a super tiny AI model? Use NLTK?
+4. HTML exporting
+5. Message Statistics Dashboard
+    a. Include total_messages, messages_per_sender, a chart of messages_by_hour of day, a chart of messages_by_day_of_week, average_message_length by each user, and response_times
