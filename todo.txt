@@ -1,7 +1,3 @@
-NEED TO FIX (BUGS):
-
-Why don't the export and search buttons in the top right work?
-
 WISHFUL:
 
 1. Keyboard Shortcuts Enhancement
