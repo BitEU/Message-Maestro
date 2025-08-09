@@ -5,7 +5,4 @@ WISHFUL:
 2. Save and loading project (saving which and what items were tagged)
     a. Also an autosave every five feature to a temp folder that can be recovered if program unexpectably closes/crashes/power loss
     b. This save feature should be an archive of not only the conversation, but also of any/all the custom tags, what messages have tags, etc
-3. Sentiment analysis and summary
-    a. Needs to be done LOCALLY. Should be an opt-in setting. Give warning if user has <4GB VRAM
-    b. Use a super tiny AI model? Use NLTK?
-4. HTML exporting
+3. HTML exporting

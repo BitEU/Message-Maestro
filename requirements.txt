@@ -1,3 +1,32 @@
+# Core Requirements (existing)
 reportlab
 weasyprint
 PyQt6
+
+# Sentiment Analysis - Basic (Lightweight ~50MB)
+nltk>=3.8
+textblob>=0.17.1
+
+# Sentiment Analysis - Advanced (Optional, ~500MB-1GB)
+# Note: These require more disk space and GPU is recommended
+transformers>=4.30.0
+torch>=2.6.0
+torchvision>=0.21.0
+torchaudio>=2.6.0
+sentencepiece>=0.1.99
+
+# Data Processing
+numpy>=1.24.0
+
+# Note for users:
+# For basic sentiment analysis (fast, lightweight), install with:
+#   pip install -r requirements.txt
+#
+# For advanced AI sentiment analysis (more accurate but requires more resources):
+#   pip install transformers torch sentencepiece
+#
+# After installation, download NLTK data by running Python and executing:
+#   import nltk
+#   nltk.download('vader_lexicon')
+#   nltk.download('punkt')
+#   nltk.download('stopwords')

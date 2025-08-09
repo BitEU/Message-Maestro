@@ -22,6 +22,7 @@ from parsers.base_parser import Conversation, Message
 from .stats_calculator import StatisticsCalculator, MessageStats
 from .chart_widgets import BarChart, PieChart, LineChart, ChartWidget
 from .stats_exporter import StatsExporter
+from .sentiment_dashboard_tab import SentimentDashboardTab
 
 
 class StatsCalculationThread(QThread):
@@ -260,6 +261,10 @@ class StatsDashboard(QMainWindow):
         self.response_tab = self.create_response_tab()
         self.tab_widget.addTab(self.response_tab, "Response Analysis")
         
+        # Sentiment analysis tab
+        self.sentiment_tab = SentimentDashboardTab()
+        self.tab_widget.addTab(self.sentiment_tab, "Sentiment Analysis")
+        
         layout.addWidget(self.tab_widget)
     
     def create_overview_tab(self) -> QWidget:
@@ -422,6 +427,9 @@ class StatsDashboard(QMainWindow):
         self.conversations = conversations
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)  # Indeterminate progress
+        
+        # Load conversations into sentiment tab
+        self.sentiment_tab.load_conversations(conversations)
         
         # Calculate stats in background thread
         self.calc_thread = StatsCalculationThread(conversations)
