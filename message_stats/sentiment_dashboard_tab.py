@@ -21,8 +21,10 @@ from parsers.base_parser import Conversation, Message
 from message_stats.chart_widgets import LineChart, BarChart, PieChart
 from message_stats.sentiment_analyzer import (
     SentimentAnalyzer, ConversationSentiment, SentimentScore,
-    NLTK_AVAILABLE, TRANSFORMERS_AVAILABLE, TEXTBLOB_AVAILABLE
+    NLTK_AVAILABLE, TEXTBLOB_AVAILABLE
 )
+
+# Import sentiment analysis components
 
 
 class SentimentAnalysisThread(QThread):
@@ -116,39 +118,6 @@ class SentimentDashboardTab(QWidget):
         self.textblob_radio = QRadioButton("TextBlob (Simple, Lightweight)")
         self.method_group.addButton(self.textblob_radio, 2)
         config_layout.addWidget(self.textblob_radio)
-        
-        # Transformer method
-        self.transformer_radio = QRadioButton("AI Model (Accurate, Requires More Resources)")
-        self.method_group.addButton(self.transformer_radio, 3)
-        config_layout.addWidget(self.transformer_radio)
-        
-        # Model size selection (for transformers)
-        self.model_size_widget = QWidget()
-        model_size_layout = QHBoxLayout(self.model_size_widget)
-        model_size_layout.setContentsMargins(20, 5, 0, 5)
-        
-        model_size_label = QLabel("Model Size:")
-        model_size_layout.addWidget(model_size_label)
-        
-        self.size_group = QButtonGroup()
-        self.small_size = QRadioButton("Small (250MB)")
-        self.small_size.setChecked(True)
-        self.size_group.addButton(self.small_size, 0)
-        model_size_layout.addWidget(self.small_size)
-        
-        self.medium_size = QRadioButton("Medium (500MB)")
-        self.size_group.addButton(self.medium_size, 1)
-        model_size_layout.addWidget(self.medium_size)
-        
-        model_size_layout.addStretch()
-        
-        config_layout.addWidget(self.model_size_widget)
-        self.model_size_widget.hide()
-        
-        # Connect transformer radio to show/hide model size
-        self.transformer_radio.toggled.connect(
-            lambda checked: self.model_size_widget.setVisible(checked)
-        )
         
         # System info
         self.system_info_label = QLabel("Checking system capabilities...")
@@ -394,43 +363,26 @@ class SentimentDashboardTab(QWidget):
             info_parts.append("✗ TextBlob")
             self.textblob_radio.setEnabled(False)
         
-        if TRANSFORMERS_AVAILABLE:
-            info_parts.append("✓ AI Models")
-            
-            # Check for GPU
-            try:
-                import torch
-                if torch.cuda.is_available():
-                    device_props = torch.cuda.get_device_properties(0)
-                    vram_gb = device_props.total_memory / (1024**3)
-                    info_parts.append(f"✓ GPU ({vram_gb:.1f}GB VRAM)")
-                    
-                    if vram_gb < 2:
-                        self.warning_label.setText(
-                            "⚠️ Low VRAM detected. AI models may run slowly. "
-                            "Consider using NLTK or TextBlob for faster analysis."
-                        )
-                else:
-                    info_parts.append("✗ GPU (CPU mode)")
-                    self.warning_label.setText(
-                        "ℹ️ No GPU detected. AI models will run on CPU (slower). "
-                        "For best performance, use NLTK or TextBlob."
-                    )
-            except:
-                info_parts.append("✗ GPU")
-        else:
-            info_parts.append("✗ AI Models")
-            self.transformer_radio.setEnabled(False)
-        
         self.system_info_label.setText("Available: " + " | ".join(info_parts))
         
         # Disable analyze button if no methods available
-        if not any([NLTK_AVAILABLE, TEXTBLOB_AVAILABLE, TRANSFORMERS_AVAILABLE]):
+        if not any([NLTK_AVAILABLE, TEXTBLOB_AVAILABLE]):
             self.analyze_btn.setEnabled(False)
             self.warning_label.setText(
-                "⚠️ No sentiment analysis libraries installed. "
-                "Install with: pip install nltk textblob transformers torch"
+                "⚠️ No sentiment analysis methods available. "
+                "Please install: pip install nltk textblob"
             )
+        else:
+            self.analyze_btn.setEnabled(True)
+            if NLTK_AVAILABLE and TEXTBLOB_AVAILABLE:
+                self.warning_label.setText("")
+            elif NLTK_AVAILABLE:
+                self.warning_label.setText("ℹ️ TextBlob not available. Using NLTK only.")
+            elif TEXTBLOB_AVAILABLE:
+                self.warning_label.setText("ℹ️ NLTK not available. Using TextBlob only.")
+        self.analyze_btn.setEnabled(
+            NLTK_AVAILABLE or TEXTBLOB_AVAILABLE or True  # Always allow AI attempt
+        )
     
     def load_conversations(self, conversations: List[Conversation]):
         """Load conversations for sentiment analysis"""
@@ -452,8 +404,7 @@ class SentimentDashboardTab(QWidget):
             self.setup_label = QLabel(
                 "Configure sentiment analysis settings above and click 'Start Analysis' to begin.\n\n"
                 "• NLTK VADER: Fast, good for social media text\n"
-                "• TextBlob: Simple, general-purpose\n"
-                "• AI Model: Most accurate but requires more resources"
+                "• TextBlob: Simple, general-purpose"
             )
             self.setup_label.setStyleSheet("color: #8b8b8b; font-size: 10pt; padding: 20px;")
             self.setup_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -476,16 +427,28 @@ class SentimentDashboardTab(QWidget):
         self.hide_setup_message()
         
         # Determine method
-        method_map = {0: "auto", 1: "nltk", 2: "textblob", 3: "transformers"}
+        method_map = {0: "auto", 1: "nltk", 2: "textblob"}
         selected_method = method_map[self.method_group.checkedId()]
-        
-        # Determine model size
-        size_map = {0: "small", 1: "medium"}
-        model_size = size_map[self.size_group.checkedId()]
         
         try:
             # Initialize analyzer
-            self.analyzer = SentimentAnalyzer(method=selected_method, model_size=model_size)
+            self.analyzer = SentimentAnalyzer(method=selected_method)
+            
+            # Check what method was actually initialized (may have fallen back)
+            actual_method = getattr(self.analyzer, 'method', selected_method)
+            if actual_method != selected_method:
+                # Show info about fallback
+                fallback_msg = f"Using {actual_method} instead of {selected_method}"
+                
+                reply = QMessageBox.question(
+                    self, "Method Changed", 
+                    fallback_msg + "\n\nContinue with available method?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.Yes
+                )
+                
+                if reply == QMessageBox.StandardButton.No:
+                    return
             
             # Show progress
             self.progress_widget.show()
@@ -494,14 +457,17 @@ class SentimentDashboardTab(QWidget):
             
             # Estimate time
             total_messages = sum(len(conv.messages) for conv in self.conversations)
-            estimated_time = self.analyzer.estimate_processing_time(total_messages)
-            
-            if estimated_time > 60:
-                self.progress_label.setText(f"Analyzing {total_messages} messages... "
-                                          f"Estimated time: {estimated_time/60:.1f} minutes")
+            if hasattr(self.analyzer, 'estimate_processing_time'):
+                estimated_time = self.analyzer.estimate_processing_time(total_messages)
+                
+                if estimated_time > 60:
+                    self.progress_label.setText(f"Analyzing {total_messages} messages... "
+                                              f"Estimated time: {estimated_time/60:.1f} minutes")
+                else:
+                    self.progress_label.setText(f"Analyzing {total_messages} messages... "
+                                              f"Estimated time: {estimated_time:.0f} seconds")
             else:
-                self.progress_label.setText(f"Analyzing {total_messages} messages... "
-                                          f"Estimated time: {estimated_time:.0f} seconds")
+                self.progress_label.setText(f"Analyzing {total_messages} messages...")
             
             # Start analysis in background thread
             # For now, analyze first conversation (extend to multiple later)
@@ -514,7 +480,8 @@ class SentimentDashboardTab(QWidget):
             self.analysis_thread.start()
             
         except Exception as e:
-            QMessageBox.critical(self, "Initialization Error", f"Failed to initialize analyzer:\n{str(e)}")
+            error_msg = str(e)
+            QMessageBox.critical(self, "Initialization Error", f"Failed to initialize analyzer:\n{error_msg}")
             self.reset_ui()
     
     def stop_analysis(self):

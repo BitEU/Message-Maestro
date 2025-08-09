@@ -3,7 +3,7 @@
 Sentiment Analysis Module for Message-Maestro
 
 Provides local sentiment analysis and conversation summarization using
-a hybrid approach with NLTK and optional small transformer models.
+NLTK and TextBlob for lightweight, fast sentiment analysis.
 """
 
 import os
@@ -13,15 +13,11 @@ from dataclasses import dataclass
 from datetime import datetime
 import re
 from collections import defaultdict, Counter
-import json
-import platform
-import subprocess
-from pathlib import Path
 
 # Core dependencies
 import numpy as np
 
-# NLTK for basic sentiment (lightweight)
+# NLTK for sentiment analysis
 try:
     import nltk
     from nltk.sentiment import SentimentIntensityAnalyzer
@@ -32,15 +28,12 @@ try:
 except ImportError:
     NLTK_AVAILABLE = False
 
-# Optional: TextBlob as a lightweight alternative
+# TextBlob as an alternative
 try:
     from textblob import TextBlob
     TEXTBLOB_AVAILABLE = True
 except ImportError:
     TEXTBLOB_AVAILABLE = False
-
-# Transformers - Import only when needed to avoid packaging issues
-TRANSFORMERS_AVAILABLE = False
 
 from parsers.base_parser import Conversation, Message
 
@@ -71,138 +64,24 @@ class ConversationSentiment:
 
 class SentimentAnalyzer:
     """
-    Hybrid sentiment analyzer that uses the best available method
+    Lightweight sentiment analyzer using NLTK and TextBlob
     """
     
-    def __init__(self, method: str = "auto", model_size: str = "small"):
+    def __init__(self, method: str = "auto"):
         """
         Initialize the sentiment analyzer
         
         Args:
-            method: "auto", "nltk", "transformers", "textblob", or "hybrid"
-            model_size: "small", "medium", or "large" (for transformer models)
+            method: "auto", "nltk", "textblob", or "hybrid"
         """
         self.method = method
-        self.model_size = model_size
         self.analyzer = None
-        self.transformer_pipeline = None
         
-        # Model cache directory
-        self.cache_dir = self._get_cache_directory()
-        
-        # Check system capabilities
-        self.gpu_available = self._check_gpu()
+        # Check available methods
         self.available_methods = self._check_available_methods()
         
         # Initialize the chosen method
         self._initialize_analyzer()
-    
-    def _get_cache_directory(self) -> Path:
-        """Get or create the model cache directory in AppData/Local"""
-        if platform.system() == "Windows":
-            cache_base = Path(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')))
-        else:
-            cache_base = Path.home() / '.local' / 'share'
-        
-        cache_dir = cache_base / 'Message-Maestro' / 'models'
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        return cache_dir
-    
-    def _lazy_import_transformers(self) -> bool:
-        """Lazy import transformers to avoid packaging issues"""
-        global TRANSFORMERS_AVAILABLE
-        
-        if TRANSFORMERS_AVAILABLE:
-            return True
-            
-        try:
-            import transformers
-            import torch
-            # Make them available globally
-            globals()['transformers'] = transformers
-            globals()['torch'] = torch
-            TRANSFORMERS_AVAILABLE = True
-            return True
-        except ImportError:
-            return False
-    
-    def _check_transformers_installation(self) -> bool:
-        """Check if transformers is installed without importing it"""
-        try:
-            import pkg_resources
-            pkg_resources.get_distribution("transformers")
-            return True
-        except (pkg_resources.DistributionNotFound, ImportError):
-            return False
-    
-    def _install_transformers_if_needed(self) -> bool:
-        """Install transformers if user wants advanced sentiment analysis"""
-        if self._check_transformers_installation():
-            return self._lazy_import_transformers()
-        
-        # Ask user if they want to install transformers for better accuracy
-        try:
-            from PyQt6.QtWidgets import QMessageBox, QApplication
-            
-            app = QApplication.instance()
-            if app is None:
-                return False
-                
-            reply = QMessageBox.question(
-                None,
-                "Enhanced Sentiment Analysis",
-                "Would you like to download AI models for more accurate sentiment analysis?\n\n"
-                "This will download about 250MB of data to your computer.\n"
-                "You can continue with basic sentiment analysis if you choose 'No'.",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No
-            )
-            
-            if reply == QMessageBox.StandardButton.Yes:
-                return self._download_transformers()
-            
-        except ImportError:
-            # Fallback for non-GUI environments
-            print("Advanced sentiment analysis requires additional AI models (~250MB)")
-            print("Would you like to download them? (y/n): ", end="")
-            try:
-                response = input().lower().strip()
-                if response in ['y', 'yes']:
-                    return self._download_transformers()
-            except (EOFError, KeyboardInterrupt):
-                pass
-        
-        return False
-    
-    def _download_transformers(self) -> bool:
-        """Download and install transformers"""
-        try:
-            print("Installing AI sentiment analysis models...")
-            subprocess.check_call([
-                sys.executable, "-m", "pip", "install", 
-                "transformers", "torch", "sentencepiece"
-            ])
-            print("AI models installed successfully!")
-            return self._lazy_import_transformers()
-        except subprocess.CalledProcessError as e:
-            print(f"Failed to install AI models: {e}")
-            return False
-    
-    def _check_gpu(self) -> bool:
-        """Check if GPU is available for transformer models"""
-        if not self._lazy_import_transformers():
-            return False
-        
-        try:
-            torch = globals().get('torch')
-            if torch and torch.cuda.is_available():
-                # Check VRAM (simplified check)
-                device_props = torch.cuda.get_device_properties(0)
-                vram_gb = device_props.total_memory / (1024**3)
-                return vram_gb >= 2  # Minimum 2GB for small models
-            return False
-        except:
-            return False
     
     def _check_available_methods(self) -> List[str]:
         """Check which sentiment analysis methods are available"""
@@ -214,30 +93,21 @@ class SentimentAnalyzer:
         if TEXTBLOB_AVAILABLE:
             methods.append("textblob")
         
-        # Check if transformers can be installed/imported
-        if self._check_transformers_installation() or self._lazy_import_transformers():
-            methods.append("transformers")
-        
         return methods
     
     def _initialize_analyzer(self):
         """Initialize the chosen sentiment analysis method"""
         if self.method == "auto":
             # Choose the best available method
-            if "transformers" in self.available_methods and self.gpu_available:
-                self._init_transformers()
-            elif "nltk" in self.available_methods:
+            if "nltk" in self.available_methods:
                 self._init_nltk()
             elif "textblob" in self.available_methods:
                 self._init_textblob()
             else:
-                raise RuntimeError("No sentiment analysis method available. Please install NLTK, TextBlob, or Transformers.")
+                raise RuntimeError("No sentiment analysis method available. Please install NLTK or TextBlob.")
         
         elif self.method == "nltk":
             self._init_nltk()
-        
-        elif self.method == "transformers":
-            self._init_transformers()
         
         elif self.method == "textblob":
             self._init_textblob()
@@ -246,8 +116,6 @@ class SentimentAnalyzer:
             # Initialize multiple methods for comparison
             if "nltk" in self.available_methods:
                 self._init_nltk()
-            if "transformers" in self.available_methods:
-                self._init_transformers()
     
     def _init_nltk(self):
         """Initialize NLTK sentiment analyzer"""
@@ -264,55 +132,11 @@ class SentimentAnalyzer:
             nltk.download('stopwords', quiet=True)
         
         self.analyzer = SentimentIntensityAnalyzer()
-        self.stop_words = set(stopwords.words('english'))
-    
-    def _init_transformers(self):
-        """Initialize transformer-based sentiment analyzer"""
-        if not self._lazy_import_transformers():
-            if not self._install_transformers_if_needed():
-                raise ImportError("Transformers is not available and could not be installed.")
-        
-        # Get the imported modules
-        transformers = globals().get('transformers')
-        torch = globals().get('torch')
-        
-        if not transformers or not torch:
-            raise ImportError("Failed to import transformers or torch")
-        
-        # Model selection based on size preference
-        model_map = {
-            "small": "distilbert-base-uncased-finetuned-sst-2-english",  # ~250MB
-            "medium": "cardiffnlp/twitter-roberta-base-sentiment-latest",  # ~500MB
-            "large": "nlptown/bert-base-multilingual-uncased-sentiment"  # ~700MB
-        }
-        
-        model_name = model_map.get(self.model_size, model_map["small"])
-        
         try:
-            # Use GPU if available
-            device = 0 if self.gpu_available else -1
-            
-            # Set cache directory for models
-            os.environ['TRANSFORMERS_CACHE'] = str(self.cache_dir)
-            
-            # Initialize pipeline with caching
-            self.transformer_pipeline = transformers.pipeline(
-                "sentiment-analysis",
-                model=model_name,
-                device=device,
-                truncation=True,
-                max_length=512
-            )
-            
-            print(f"Initialized transformer model: {model_name}")
-            print(f"Models cached in: {self.cache_dir}")
-            
-        except Exception as e:
-            print(f"Failed to load transformer model: {e}")
-            # Fallback to NLTK
-            if "nltk" in self.available_methods:
-                print("Falling back to NLTK...")
-                self._init_nltk()
+            self.stop_words = set(stopwords.words('english'))
+        except:
+            # Fallback if stopwords not available
+            self.stop_words = {'the', 'and', 'for', 'that', 'this', 'with', 'from', 'have', 'will', 'your', 'what', 'when', 'where', 'which', 'their', 'would', 'there', 'could', 'should', 'after', 'before', 'just', 'about', 'into', 'some', 'them', 'other', 'than', 'then', 'also', 'been', 'only', 'very', 'over', 'such', 'being', 'through'}
     
     def _init_textblob(self):
         """Initialize TextBlob sentiment analyzer"""
@@ -349,9 +173,7 @@ class SentimentAnalyzer:
         text = self._clean_text(text)
         
         # Analyze based on available method
-        if self.transformer_pipeline:
-            return self._analyze_with_transformers(text)
-        elif self.analyzer:  # NLTK
+        if self.analyzer:  # NLTK
             return self._analyze_with_nltk(text)
         elif TEXTBLOB_AVAILABLE:
             return self._analyze_with_textblob(text)
@@ -386,48 +208,6 @@ class SentimentAnalyzer:
             confidence=min(confidence * 1.5, 1.0),  # Scale confidence
             method="nltk"
         )
-    
-    def _analyze_with_transformers(self, text: str) -> SentimentScore:
-        """Analyze sentiment using transformer model"""
-        try:
-            # Get prediction
-            result = self.transformer_pipeline(text[:512])[0]  # Truncate to max length
-            
-            label = result['label'].lower()
-            score = result['score']
-            
-            # Convert to standardized format
-            if 'positive' in label or label == 'pos' or label == '5 stars' or label == '4 stars':
-                compound = score
-                positive = score
-                negative = 0.0
-            elif 'negative' in label or label == 'neg' or label == '1 star' or label == '2 stars':
-                compound = -score
-                positive = 0.0
-                negative = score
-            else:  # neutral or 3 stars
-                compound = 0.0
-                positive = 0.0
-                negative = 0.0
-            
-            neutral = 1.0 - (positive + negative)
-            
-            return SentimentScore(
-                compound=compound,
-                positive=positive,
-                negative=negative,
-                neutral=neutral,
-                confidence=score,
-                method="transformers"
-            )
-            
-        except Exception as e:
-            print(f"Transformer analysis failed: {e}")
-            # Fallback to NLTK if available
-            if self.analyzer:
-                return self._analyze_with_nltk(text)
-            else:
-                return self._analyze_with_regex(text)
     
     def _analyze_with_textblob(self, text: str) -> SentimentScore:
         """Analyze sentiment using TextBlob"""
@@ -695,22 +475,15 @@ class SentimentAnalyzer:
         return {
             'available_methods': self.available_methods,
             'current_method': self.method,
-            'gpu_available': self.gpu_available,
-            'model_size': self.model_size if self.method == "transformers" else None,
             'nltk_available': NLTK_AVAILABLE,
-            'transformers_available': TRANSFORMERS_AVAILABLE,
             'textblob_available': TEXTBLOB_AVAILABLE,
-            'recommended_method': 'transformers' if self.gpu_available and TRANSFORMERS_AVAILABLE else 'nltk'
+            'recommended_method': 'nltk' if NLTK_AVAILABLE else 'textblob'
         }
     
     def estimate_processing_time(self, message_count: int) -> float:
         """Estimate processing time in seconds for given number of messages"""
         # Rough estimates based on method
-        if self.transformer_pipeline and self.gpu_available:
-            return message_count * 0.05  # ~50ms per message on GPU
-        elif self.transformer_pipeline:
-            return message_count * 0.2  # ~200ms per message on CPU
-        elif self.analyzer:  # NLTK
+        if self.analyzer:  # NLTK
             return message_count * 0.01  # ~10ms per message
         else:
             return message_count * 0.005  # ~5ms per message for simple methods

@@ -6,23 +6,13 @@ PyQt6
 # Data Processing
 numpy>=1.24.0
 
-# Sentiment Analysis - Basic (Lightweight, included in binary)
+# Sentiment Analysis - Lightweight only
 nltk>=3.8
 textblob>=0.17.1
 
-# Optional: Advanced AI Sentiment Analysis
-# These are NOT included in the compiled binary and will be downloaded when needed:
-# - transformers>=4.30.0    (~250MB - downloaded automatically when user opts in)
-# - torch>=2.6.0            (~200MB - downloaded automatically when user opts in)
-# - sentencepiece>=0.1.99   (~50MB  - downloaded automatically when user opts in)
-
 # Installation Notes:
-# 1. For basic sentiment analysis (fast, lightweight):
+# 1. For sentiment analysis (fast, lightweight):
 #    pip install -r requirements.txt
 #
-# 2. For advanced AI sentiment analysis:
-#    The application will automatically offer to download AI models when first used
-#    Models are cached in: %LOCALAPPDATA%\Message-Maestro\models (Windows)
-#
-# 3. NLTK data is downloaded automatically on first use to:
+# 2. NLTK data is downloaded automatically on first use to:
 #    %APPDATA%\nltk_data (Windows)
