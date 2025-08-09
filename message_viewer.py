@@ -38,6 +38,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from parsers.parser_manager import ParserManager
 from parsers.base_parser import BaseParser, Conversation, Message
 from message_stats.stats_dashboard import StatsDashboard
+from message_tagging import TagManager, TagManagerDialog, TagDisplay, TagShortcutManager
 
 
 class GPUAcceleratedScrollArea(QScrollArea):
@@ -193,8 +194,7 @@ class MessageBubble(QFrame):
         
         # Add new tag label if tag_info exists
         if self.tag_info:
-            self.tag_label = QLabel(f"🏷️ {self.tag_info['name']}")
-            self.tag_label.setObjectName("tagLabel")
+            self.tag_label = TagDisplay(self.tag_info, show_shortcut=False)
             # Insert after text label but before media label
             self.bubble_inner_layout.insertWidget(1, self.tag_label)
     
@@ -256,66 +256,6 @@ class MessageBubble(QFrame):
     
     def contextMenuEvent(self, event):
         self.contextMenuRequested.emit(event.globalPos(), self.message, self.conversation_id)
-
-
-class TagManager:
-    """Manages message tags"""
-    def __init__(self):
-        self.tags = {}  # {tag_id: {'name': str, 'color': str}}
-        self.message_tags = {}  # {(conv_id, msg_id): tag_id}
-        self.load_default_tags()
-    
-    def load_default_tags(self):
-        """Load default tag set"""
-        default_tags = [
-            ('Bookmark', '#44ff44'),
-            ('Evidence', '#ff4444'),
-            ('Of interest', '#ffcc44'),
-            ('Exceptions', '#ff8844'),
-            ('Possible child abuse content', '#4488ff'),
-            ('Possible nudity', '#8844ff'),
-            ('Blank 1', "#212379"),
-            ('Blank 2', '#ff44ff'),
-            ('Blank 3', '#888888'),
-            ('Blank 4', "#af5e5e"),
-            ('Blank 5', "#4e2d0e"),
-            ('Blank 6', '#66ffff'),
-        ]
-        
-        for i, (name, color) in enumerate(default_tags):
-            self.tags[str(i)] = {'name': name, 'color': color}
-    
-    def get_tags(self):
-        """Get all tags"""
-        return self.tags.copy()
-    
-    def update_tag(self, tag_id: str, name: str, color: str):
-        """Update a tag"""
-        self.tags[tag_id] = {'name': name, 'color': color}
-    
-    def tag_message(self, conv_id: str, msg_id: str, tag_id: str):
-        """Tag a message"""
-        if tag_id in self.tags:
-            self.message_tags[(conv_id, msg_id)] = tag_id
-    
-    def untag_message(self, conv_id: str, msg_id: str):
-        """Remove tag from a message"""
-        key = (conv_id, msg_id)
-        if key in self.message_tags:
-            del self.message_tags[key]
-    
-    def get_message_tag(self, conv_id: str, msg_id: str) -> Optional[Dict]:
-        """Get tag for a message"""
-        tag_id = self.message_tags.get((conv_id, msg_id))
-        if tag_id and tag_id in self.tags:
-            return {'id': tag_id, **self.tags[tag_id]}
-        return None
-    
-    def get_tagged_messages(self, tag_id: str = None) -> List[Tuple[str, str]]:
-        """Get all messages with a specific tag (or all tagged messages if tag_id is None)"""
-        if tag_id is None:
-            return list(self.message_tags.keys())
-        return [(conv_id, msg_id) for (conv_id, msg_id), tid in self.message_tags.items() if tid == tag_id]
 
 
 class SearchManager:
@@ -468,146 +408,6 @@ class ConversationItem(QFrame):
         super().mousePressEvent(event)
 
 
-class TagManagerDialog(QDialog):
-    """Tag management dialog"""
-    def __init__(self, tag_manager: TagManager, parent=None):
-        super().__init__(parent)
-        self.tag_manager = tag_manager
-        self.tag_widgets = {}
-        
-        self.setWindowTitle("Manage Tags")
-        self.setModal(True)
-        self.resize(500, 600)
-        
-        self.setup_ui()
-        self.apply_dark_theme()
-    
-    def setup_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        
-        # Header
-        header = QLabel("Manage Tags")
-        header.setStyleSheet("font-size: 14pt; font-weight: bold; color: white;")
-        header.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(header)
-        
-        layout.addSpacing(20)
-        
-        # Tags list
-        tags_widget = QWidget()
-        tags_layout = QVBoxLayout(tags_widget)
-        
-        for tag_id, tag_info in self.tag_manager.get_tags().items():
-            row_widget = QWidget()
-            row_layout = QHBoxLayout(row_widget)
-            row_layout.setContentsMargins(0, 5, 0, 5)
-            
-            # Color button
-            color_btn = QPushButton()
-            color_btn.setFixedSize(30, 30)
-            color_btn.setStyleSheet(f"background-color: {tag_info['color']}; border: none; border-radius: 5px;")
-            color_btn.clicked.connect(lambda checked, tid=tag_id: self.pick_color(tid))
-            row_layout.addWidget(color_btn)
-            
-            # Name entry
-            name_entry = QLineEdit(tag_info['name'])
-            name_entry.setStyleSheet("background-color: #252525; color: white; border: 1px solid #2f3336; padding: 5px;")
-            row_layout.addWidget(name_entry)
-            
-            # Usage count
-            usage_count = len(self.tag_manager.get_tagged_messages(tag_id))
-            usage_label = QLabel(f"{usage_count} messages")
-            usage_label.setStyleSheet("color: #8b8b8b;")
-            row_layout.addWidget(usage_label)
-            
-            tags_layout.addWidget(row_widget)
-            
-            self.tag_widgets[tag_id] = {
-                'name_entry': name_entry,
-                'color_btn': color_btn,
-                'color': tag_info['color']
-            }
-        
-        scroll_area = QScrollArea()
-        scroll_area.setWidget(tags_widget)
-        scroll_area.setWidgetResizable(True)
-        layout.addWidget(scroll_area)
-        
-        # Buttons
-        layout.addSpacing(20)
-        
-        buttons_widget = QWidget()
-        buttons_layout = QHBoxLayout(buttons_widget)
-        buttons_layout.setContentsMargins(0, 0, 0, 0)
-        
-        save_btn = QPushButton("Save")
-        save_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #1d9bf0;
-                color: white;
-                border: none;
-                padding: 8px 20px;
-                border-radius: 5px;
-                font-weight: 500;
-            }
-            QPushButton:hover {
-                background-color: #1a8cd8;
-            }
-        """)
-        save_btn.clicked.connect(self.save_tags)
-        
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #252525;
-                color: white;
-                border: none;
-                padding: 8px 20px;
-                border-radius: 5px;
-            }
-            QPushButton:hover {
-                background-color: #353535;
-            }
-        """)
-        cancel_btn.clicked.connect(self.reject)
-        
-        buttons_layout.addStretch()
-        buttons_layout.addWidget(save_btn)
-        buttons_layout.addWidget(cancel_btn)
-        
-        layout.addWidget(buttons_widget)
-    
-    def apply_dark_theme(self):
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #1a1a1a;
-            }
-            QLabel {
-                color: white;
-            }
-        """)
-    
-    def pick_color(self, tag_id: str):
-        current_color = QColor(self.tag_widgets[tag_id]['color'])
-        color = QColorDialog.getColor(current_color, self, "Select Tag Color")
-        
-        if color.isValid():
-            self.tag_widgets[tag_id]['color'] = color.name()
-            self.tag_widgets[tag_id]['color_btn'].setStyleSheet(
-                f"background-color: {color.name()}; border: none; border-radius: 5px;"
-            )
-    
-    def save_tags(self):
-        for tag_id, widgets in self.tag_widgets.items():
-            self.tag_manager.update_tag(
-                tag_id,
-                widgets['name_entry'].text(),
-                widgets['color']
-            )
-        self.accept()
-
-
 class ModernMessageViewer(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -634,6 +434,9 @@ class ModernMessageViewer(QMainWindow):
         self.tag_manager = TagManager()
         self.search_manager = SearchManager()
         self.current_parser: Optional[BaseParser] = None
+        
+        # Initialize keyboard shortcuts after UI is set up
+        self.shortcut_manager = None
         
         # Data
         self.conversations: List[Conversation] = []
@@ -992,6 +795,12 @@ class ModernMessageViewer(QMainWindow):
     
     def setup_shortcuts(self):
         """Setup keyboard shortcuts"""
+        # Initialize the shortcut manager
+        self.shortcut_manager = TagShortcutManager(self)
+        
+        # Connect shortcut manager signals
+        self.shortcut_manager.tag_requested.connect(self.handle_shortcut_tag_request)
+        
         # Search shortcut
         search_action = QAction("Search", self)
         search_action.setShortcut(QKeySequence("Ctrl+F"))
@@ -1008,6 +817,39 @@ class ModernMessageViewer(QMainWindow):
         find_prev_action.setShortcut(QKeySequence("Ctrl+Shift+G"))
         find_prev_action.triggered.connect(self.find_previous)
         self.addAction(find_prev_action)
+    
+    def handle_shortcut_tag_request(self, tag_id: str):
+        """Handle tag request from keyboard shortcut"""
+        # Find the currently focused or selected message
+        # For now, we'll use the last right-clicked message if available
+        if hasattr(self, 'current_context_message'):
+            message, conversation_id = self.current_context_message
+            
+            # Check if message already has this tag
+            current_tag = self.tag_manager.get_message_tag(conversation_id, message.id)
+            
+            if current_tag and current_tag['id'] == tag_id:
+                # If same tag, remove it
+                self.remove_tag_from_message()
+            else:
+                # Apply the new tag
+                self.tag_current_message(tag_id)
+        else:
+            # No message selected, show a brief message
+            if hasattr(self, 'status_bar'):
+                self.status_bar.showMessage("Right-click on a message first to use keyboard shortcuts", 2000)
+
+    def get_shortcut_display_for_tag(self, tag_id: str) -> str:
+        """Get shortcut display text for a tag"""
+        if self.shortcut_manager:
+            shortcut = self.shortcut_manager.get_shortcut_for_tag(tag_id)
+            if shortcut:
+                return self.shortcut_manager.get_shortcut_display_text(shortcut)
+            
+            # Check if it's the spacebar tag
+            if self.shortcut_manager.get_spacebar_tag() == tag_id:
+                return "Spacebar"
+        return ""
     
     def setup_context_menu(self):
         """Setup context menu for messages"""
@@ -1038,7 +880,13 @@ class ModernMessageViewer(QMainWindow):
         self.tag_menu.addSeparator()
         
         for tag_id, tag_info in self.tag_manager.get_tags().items():
-            action = self.tag_menu.addAction(tag_info['name'])
+            # Build action text with shortcut
+            action_text = tag_info['name']
+            shortcut_display = self.get_shortcut_display_for_tag(tag_id)
+            if shortcut_display:
+                action_text += f" ({shortcut_display})"
+            
+            action = self.tag_menu.addAction(action_text)
             action.setData(tag_id)
             action.triggered.connect(lambda checked, tid=tag_id: self.tag_current_message(tid))
             
@@ -1632,9 +1480,12 @@ class ModernMessageViewer(QMainWindow):
     
     def open_tag_manager(self):
         """Open tag management dialog"""
-        dialog = TagManagerDialog(self.tag_manager, self)
+        dialog = TagManagerDialog(self.tag_manager, self.shortcut_manager, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.update_tag_menu()
+            # Update shortcuts for any tag changes
+            if self.shortcut_manager:
+                self.shortcut_manager.update_shortcuts_for_tags(self.tag_manager.get_tags())
             # Refresh current conversation to show updated tags
             if self.current_conversation:
                 self.display_conversation()
@@ -2002,7 +1853,12 @@ class ModernMessageViewer(QMainWindow):
             
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to open statistics dashboard:\n{str(e)}")
-
+    
+    def keyPressEvent(self, event):
+        """Handle global key press events"""
+        # Let the shortcut manager handle tag shortcuts
+        # The shortcut manager will emit signals that we've connected
+        super().keyPressEvent(event)
 
 def main():
     app = QApplication(sys.argv)
