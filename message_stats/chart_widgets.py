@@ -493,8 +493,10 @@ class PieChart(ChartWidget):
         self.hover_index = -1
         
         if distance <= radius:
-            # Calculate angle
-            angle = math.atan2(dy, dx)
+            # Calculate angle - convert to match Qt's coordinate system
+            # Qt's drawPie starts at 3 o'clock (0 degrees) and goes clockwise
+            # atan2 returns angle from positive x-axis, counter-clockwise
+            angle = math.atan2(-dy, dx)  # Negative dy to convert to Qt coordinate system
             if angle < 0:
                 angle += 2 * math.pi
             angle_degrees = math.degrees(angle)

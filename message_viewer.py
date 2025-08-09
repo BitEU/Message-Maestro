@@ -1773,7 +1773,7 @@ class ModernMessageViewer(QMainWindow):
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Export Conversation as PDF",
-            f"{'_'.join(self.current_conversation.participants)}_export.pdf",
+            f"{'_'.join(self.current_conversation.participants)}_message-export.pdf",
             "PDF Documents (*.pdf)"
         )
         

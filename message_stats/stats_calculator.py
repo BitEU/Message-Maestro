@@ -106,8 +106,9 @@ class StatisticsCalculator:
                         time_diff = message.timestamp - prev_message.timestamp
                         response_minutes = time_diff.total_seconds() / 60
                         
-                        # Only count reasonable response times (< 24 hours)
-                        if response_minutes < 1440:  # 24 hours in minutes
+                        # Count response times with more flexible thresholds
+                        # For social media/messaging apps, responses can happen over days or weeks
+                        if response_minutes < 43200:  # 30 days in minutes (more realistic for social platforms)
                             response_times[message.sender_id].append(response_minutes)
         
         # Calculate averages and derived statistics

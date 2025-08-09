@@ -645,8 +645,19 @@ class StatsDashboard(QMainWindow):
             QMessageBox.warning(self, "No Data", "No statistics to export.")
             return
         
+        # Determine default filename based on participants
+        if self.conversations and len(self.conversations) == 1:
+            participants = self.conversations[0].participants
+            default_filename = f"{'_'.join(participants)}_statistics.pdf"
+        elif self.conversations and len(self.conversations) > 1:
+            # Use up to 3 participants from the first conversation for the filename
+            participants = self.conversations[0].participants[:3]
+            default_filename = f"{'_'.join(participants)}_and_others_statistics.pdf"
+        else:
+            default_filename = "message_statistics.pdf"
+
         file_path, _ = QFileDialog.getSaveFileName(
-            self, "Export Statistics", "message_statistics.pdf", "PDF Files (*.pdf)"
+            self, "Export Statistics", default_filename, "PDF Files (*.pdf)"
         )
         
         if file_path:
