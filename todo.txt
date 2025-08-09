@@ -9,5 +9,3 @@ WISHFUL:
     a. Needs to be done LOCALLY. Should be an opt-in setting. Give warning if user has <4GB VRAM
     b. Use a super tiny AI model? Use NLTK?
 4. HTML exporting
-5. Message Statistics Dashboard
-    a. Include total_messages, messages_per_sender, a chart of messages_by_hour of day, a chart of messages_by_day_of_week, average_message_length by each user, and response_times

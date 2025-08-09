@@ -37,6 +37,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 
 from parsers.parser_manager import ParserManager
 from parsers.base_parser import BaseParser, Conversation, Message
+from message_stats.stats_dashboard import StatsDashboard
 
 
 class GPUAcceleratedScrollArea(QScrollArea):
@@ -947,6 +948,11 @@ class ModernMessageViewer(QMainWindow):
         self.search_conv_btn.clicked.connect(self.search_in_current_conversation)
         header_buttons_layout.addWidget(self.search_conv_btn)
         
+        self.stats_dashboard_btn = AnimatedButton("📊 Statistics")
+        self.stats_dashboard_btn.setEnabled(False)
+        self.stats_dashboard_btn.clicked.connect(self.show_statistics_dashboard)
+        header_buttons_layout.addWidget(self.stats_dashboard_btn)
+        
         self.export_pdf_btn = AnimatedButton("Export as PDF")
         self.export_pdf_btn.setEnabled(False)
         self.export_pdf_btn.clicked.connect(self.export_to_pdf)
@@ -1414,6 +1420,7 @@ class ModernMessageViewer(QMainWindow):
             self.show_empty_state()
             self.export_pdf_btn.setEnabled(False)
             self.search_conv_btn.setEnabled(False)
+            self.stats_dashboard_btn.setEnabled(False)
             
             # Clear search
             self.clear_search()
@@ -1488,6 +1495,7 @@ class ModernMessageViewer(QMainWindow):
         # Enable buttons
         self.export_pdf_btn.setEnabled(True)
         self.search_conv_btn.setEnabled(True)
+        self.stats_dashboard_btn.setEnabled(True)
     
     def display_conversation(self):
         """Display messages for the current conversation"""
@@ -1965,6 +1973,35 @@ class ModernMessageViewer(QMainWindow):
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to export to PDF: {e}")
+    
+    def show_statistics_dashboard(self):
+        """Show the statistics dashboard for the current conversation or all conversations"""
+        if not self.conversations:
+            QMessageBox.warning(self, "No Data", "Please load message data first.")
+            return
+        
+        try:
+            # Determine what to analyze
+            if self.current_conversation:
+                # Show stats for the current conversation only
+                conversations_to_analyze = [self.current_conversation]
+                title_suffix = f" - {' ↔ '.join(self.current_conversation.participants)}"
+            else:
+                # Show stats for all conversations
+                conversations_to_analyze = self.conversations
+                title_suffix = " - All Conversations"
+            
+            # Create and show the statistics dashboard
+            dashboard = StatsDashboard(conversations_to_analyze, parent=self)
+            dashboard.setWindowTitle(f"Message Statistics Dashboard{title_suffix}")
+            dashboard.show()
+            
+            # Make sure it stays on top and is properly focused
+            dashboard.raise_()
+            dashboard.activateWindow()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to open statistics dashboard:\n{str(e)}")
 
 
 def main():
