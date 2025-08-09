@@ -180,19 +180,6 @@ The application includes local sentiment analysis capabilities that provide emot
 
 Install all dependencies with `pip install -r requirements.txt`.
 
-## Roadmap / TODO
-
-See `todo.txt` for planned features, including:
-- Enhanced keyboard shortcuts
-- Project save/load and autosave
-- HTML export
-
-**Recently Implemented:**
-- ✅ Local sentiment analysis and summary
-- ✅ Message statistics dashboard
-- ✅ Interactive data visualizations
-- ✅ Statistics export to PDF and JSON
-
 ## Contributing
 
 Contributions are welcome! To add support for a new platform, implement a new parser in `parsers/` by subclassing `BaseParser`.
