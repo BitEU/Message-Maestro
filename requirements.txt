@@ -1,32 +1,28 @@
-# Core Requirements (existing)
+# Core Requirements (Required for basic functionality)
 reportlab
 weasyprint
 PyQt6
 
-# Sentiment Analysis - Basic (Lightweight ~50MB)
-nltk>=3.8
-textblob>=0.17.1
-
-# Sentiment Analysis - Advanced (Optional, ~500MB-1GB)
-# Note: These require more disk space and GPU is recommended
-transformers>=4.30.0
-torch>=2.6.0
-torchvision>=0.21.0
-torchaudio>=2.6.0
-sentencepiece>=0.1.99
-
 # Data Processing
 numpy>=1.24.0
 
-# Note for users:
-# For basic sentiment analysis (fast, lightweight), install with:
-#   pip install -r requirements.txt
+# Sentiment Analysis - Basic (Lightweight, included in binary)
+nltk>=3.8
+textblob>=0.17.1
+
+# Optional: Advanced AI Sentiment Analysis
+# These are NOT included in the compiled binary and will be downloaded when needed:
+# - transformers>=4.30.0    (~250MB - downloaded automatically when user opts in)
+# - torch>=2.6.0            (~200MB - downloaded automatically when user opts in)
+# - sentencepiece>=0.1.99   (~50MB  - downloaded automatically when user opts in)
+
+# Installation Notes:
+# 1. For basic sentiment analysis (fast, lightweight):
+#    pip install -r requirements.txt
 #
-# For advanced AI sentiment analysis (more accurate but requires more resources):
-#   pip install transformers torch sentencepiece
+# 2. For advanced AI sentiment analysis:
+#    The application will automatically offer to download AI models when first used
+#    Models are cached in: %LOCALAPPDATA%\Message-Maestro\models (Windows)
 #
-# After installation, download NLTK data by running Python and executing:
-#   import nltk
-#   nltk.download('vader_lexicon')
-#   nltk.download('punkt')
-#   nltk.download('stopwords')
+# 3. NLTK data is downloaded automatically on first use to:
+#    %APPDATA%\nltk_data (Windows)

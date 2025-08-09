@@ -653,6 +653,22 @@ class StatsDashboard(QMainWindow):
             QMessageBox.warning(self, "No Data", "No statistics to export.")
             return
         
+        # Check if sentiment analysis should be included
+        include_sentiment = False
+        sentiment_data = None
+        
+        if hasattr(self, 'sentiment_tab') and self.sentiment_tab.current_sentiment:
+            reply = QMessageBox.question(
+                self, "Include Sentiment Analysis", 
+                "Include sentiment analysis in the PDF report?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes
+            )
+            
+            if reply == QMessageBox.StandardButton.Yes:
+                include_sentiment = True
+                sentiment_data = self.sentiment_tab.current_sentiment
+        
         # Determine default filename based on participants
         if self.conversations and len(self.conversations) == 1:
             participants = self.conversations[0].participants
@@ -670,7 +686,18 @@ class StatsDashboard(QMainWindow):
         
         if file_path:
             try:
-                self.exporter.export_to_pdf(self.stats, file_path)
+                # Create a new stats object with sentiment data if needed
+                export_stats = self.stats
+                if include_sentiment and sentiment_data:
+                    # Create a copy of stats with sentiment data
+                    from dataclasses import replace
+                    export_stats = replace(
+                        self.stats,
+                        sentiment_data=sentiment_data,
+                        sentiment_enabled=True
+                    )
+                
+                self.exporter.export_to_pdf(export_stats, file_path)
                 QMessageBox.information(self, "Export Complete", f"Statistics exported to:\n{file_path}")
             except Exception as e:
                 QMessageBox.critical(self, "Export Error", f"Error exporting PDF:\n{str(e)}")

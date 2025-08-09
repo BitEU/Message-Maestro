@@ -14,6 +14,9 @@ from datetime import datetime
 import re
 from collections import defaultdict, Counter
 import json
+import platform
+import subprocess
+from pathlib import Path
 
 # Core dependencies
 import numpy as np
@@ -29,20 +32,15 @@ try:
 except ImportError:
     NLTK_AVAILABLE = False
 
-# Optional: Transformers for advanced analysis
-try:
-    from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
-    import torch
-    TRANSFORMERS_AVAILABLE = True
-except ImportError:
-    TRANSFORMERS_AVAILABLE = False
-
 # Optional: TextBlob as a lightweight alternative
 try:
     from textblob import TextBlob
     TEXTBLOB_AVAILABLE = True
 except ImportError:
     TEXTBLOB_AVAILABLE = False
+
+# Transformers - Import only when needed to avoid packaging issues
+TRANSFORMERS_AVAILABLE = False
 
 from parsers.base_parser import Conversation, Message
 
@@ -89,6 +87,9 @@ class SentimentAnalyzer:
         self.analyzer = None
         self.transformer_pipeline = None
         
+        # Model cache directory
+        self.cache_dir = self._get_cache_directory()
+        
         # Check system capabilities
         self.gpu_available = self._check_gpu()
         self.available_methods = self._check_available_methods()
@@ -96,14 +97,105 @@ class SentimentAnalyzer:
         # Initialize the chosen method
         self._initialize_analyzer()
     
+    def _get_cache_directory(self) -> Path:
+        """Get or create the model cache directory in AppData/Local"""
+        if platform.system() == "Windows":
+            cache_base = Path(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')))
+        else:
+            cache_base = Path.home() / '.local' / 'share'
+        
+        cache_dir = cache_base / 'Message-Maestro' / 'models'
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        return cache_dir
+    
+    def _lazy_import_transformers(self) -> bool:
+        """Lazy import transformers to avoid packaging issues"""
+        global TRANSFORMERS_AVAILABLE
+        
+        if TRANSFORMERS_AVAILABLE:
+            return True
+            
+        try:
+            import transformers
+            import torch
+            # Make them available globally
+            globals()['transformers'] = transformers
+            globals()['torch'] = torch
+            TRANSFORMERS_AVAILABLE = True
+            return True
+        except ImportError:
+            return False
+    
+    def _check_transformers_installation(self) -> bool:
+        """Check if transformers is installed without importing it"""
+        try:
+            import pkg_resources
+            pkg_resources.get_distribution("transformers")
+            return True
+        except (pkg_resources.DistributionNotFound, ImportError):
+            return False
+    
+    def _install_transformers_if_needed(self) -> bool:
+        """Install transformers if user wants advanced sentiment analysis"""
+        if self._check_transformers_installation():
+            return self._lazy_import_transformers()
+        
+        # Ask user if they want to install transformers for better accuracy
+        try:
+            from PyQt6.QtWidgets import QMessageBox, QApplication
+            
+            app = QApplication.instance()
+            if app is None:
+                return False
+                
+            reply = QMessageBox.question(
+                None,
+                "Enhanced Sentiment Analysis",
+                "Would you like to download AI models for more accurate sentiment analysis?\n\n"
+                "This will download about 250MB of data to your computer.\n"
+                "You can continue with basic sentiment analysis if you choose 'No'.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            
+            if reply == QMessageBox.StandardButton.Yes:
+                return self._download_transformers()
+            
+        except ImportError:
+            # Fallback for non-GUI environments
+            print("Advanced sentiment analysis requires additional AI models (~250MB)")
+            print("Would you like to download them? (y/n): ", end="")
+            try:
+                response = input().lower().strip()
+                if response in ['y', 'yes']:
+                    return self._download_transformers()
+            except (EOFError, KeyboardInterrupt):
+                pass
+        
+        return False
+    
+    def _download_transformers(self) -> bool:
+        """Download and install transformers"""
+        try:
+            print("Installing AI sentiment analysis models...")
+            subprocess.check_call([
+                sys.executable, "-m", "pip", "install", 
+                "transformers", "torch", "sentencepiece"
+            ])
+            print("AI models installed successfully!")
+            return self._lazy_import_transformers()
+        except subprocess.CalledProcessError as e:
+            print(f"Failed to install AI models: {e}")
+            return False
+    
     def _check_gpu(self) -> bool:
         """Check if GPU is available for transformer models"""
-        if not TRANSFORMERS_AVAILABLE:
+        if not self._lazy_import_transformers():
             return False
         
         try:
-            import torch
-            if torch.cuda.is_available():
+            torch = globals().get('torch')
+            if torch and torch.cuda.is_available():
                 # Check VRAM (simplified check)
                 device_props = torch.cuda.get_device_properties(0)
                 vram_gb = device_props.total_memory / (1024**3)
@@ -122,7 +214,8 @@ class SentimentAnalyzer:
         if TEXTBLOB_AVAILABLE:
             methods.append("textblob")
         
-        if TRANSFORMERS_AVAILABLE:
+        # Check if transformers can be installed/imported
+        if self._check_transformers_installation() or self._lazy_import_transformers():
             methods.append("transformers")
         
         return methods
@@ -175,8 +268,16 @@ class SentimentAnalyzer:
     
     def _init_transformers(self):
         """Initialize transformer-based sentiment analyzer"""
-        if not TRANSFORMERS_AVAILABLE:
-            raise ImportError("Transformers is not installed. Run: pip install transformers torch")
+        if not self._lazy_import_transformers():
+            if not self._install_transformers_if_needed():
+                raise ImportError("Transformers is not available and could not be installed.")
+        
+        # Get the imported modules
+        transformers = globals().get('transformers')
+        torch = globals().get('torch')
+        
+        if not transformers or not torch:
+            raise ImportError("Failed to import transformers or torch")
         
         # Model selection based on size preference
         model_map = {
@@ -191,8 +292,11 @@ class SentimentAnalyzer:
             # Use GPU if available
             device = 0 if self.gpu_available else -1
             
+            # Set cache directory for models
+            os.environ['TRANSFORMERS_CACHE'] = str(self.cache_dir)
+            
             # Initialize pipeline with caching
-            self.transformer_pipeline = pipeline(
+            self.transformer_pipeline = transformers.pipeline(
                 "sentiment-analysis",
                 model=model_name,
                 device=device,
@@ -201,6 +305,7 @@ class SentimentAnalyzer:
             )
             
             print(f"Initialized transformer model: {model_name}")
+            print(f"Models cached in: {self.cache_dir}")
             
         except Exception as e:
             print(f"Failed to load transformer model: {e}")

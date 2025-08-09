@@ -689,3 +689,11 @@ class SentimentDashboardTab(QWidget):
             peaks_text += f"   - {message.sender_id} at {message.timestamp.strftime('%Y-%m-%d %H:%M')}\n\n"
         
         self.peaks_text.setPlainText(peaks_text)
+    
+    def get_sentiment_data(self) -> Optional[Any]:
+        """Get the current sentiment analysis data"""
+        return self.current_sentiment
+    
+    def has_sentiment_data(self) -> bool:
+        """Check if sentiment analysis data is available"""
+        return self.current_sentiment is not None

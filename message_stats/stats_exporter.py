@@ -116,6 +116,10 @@ class StatsExporter:
         # Response analysis section
         story.extend(self._create_response_section(stats))
         
+        # Sentiment analysis section (if available)
+        if stats.sentiment_enabled and stats.sentiment_data:
+            story.extend(self._create_sentiment_section(stats))
+        
         # Build PDF
         doc.build(story)
     
@@ -435,5 +439,117 @@ class StatsExporter:
             }
         }
         
+        # Write to file
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(stats_dict, f, indent=2, ensure_ascii=False)
+    
+    def _create_sentiment_section(self, stats: MessageStats) -> List[Any]:
+        """Create the sentiment analysis section"""
+        content = []
+        
+        sentiment = stats.sentiment_data
+        if not sentiment:
+            return content
+        
+        content.append(Paragraph("Sentiment Analysis", self.heading_style))
+        
+        # Overall sentiment summary
+        content.append(Paragraph("Overall Sentiment", self.subheading_style))
+        
+        overall_score = sentiment.overall_sentiment
+        sentiment_label = self._get_sentiment_label(overall_score.compound)
+        confidence_pct = overall_score.confidence * 100
+        
+        sentiment_text = f"""
+        The overall sentiment of this conversation is <b>{sentiment_label}</b> with a sentiment score of 
+        {overall_score.compound:.3f} (confidence: {confidence_pct:.1f}%).
+        
+        Sentiment breakdown:
+        • Positive: {overall_score.positive:.1%}
+        • Negative: {overall_score.negative:.1%}
+        • Neutral: {overall_score.neutral:.1%}
+        
+        Analysis method: {overall_score.method}
+        """
+        
+        content.append(Paragraph(sentiment_text, self.normal_style))
+        
+        # Sentiment by sender
+        if sentiment.sentiment_by_sender:
+            content.append(Paragraph("Sentiment by Sender", self.subheading_style))
+            
+            sender_data = [["Sender", "Sentiment", "Score", "Positive", "Negative", "Neutral"]]
+            
+            for sender, sender_sentiment in sentiment.sentiment_by_sender.items():
+                sender_label = self._get_sentiment_label(sender_sentiment.compound)
+                sender_data.append([
+                    sender,
+                    sender_label,
+                    f"{sender_sentiment.compound:.3f}",
+                    f"{sender_sentiment.positive:.1%}",
+                    f"{sender_sentiment.negative:.1%}",
+                    f"{sender_sentiment.neutral:.1%}"
+                ])
+            
+            sender_table = Table(sender_data, colWidths=[1.5*inch, 1*inch, 0.8*inch, 0.8*inch, 0.8*inch, 0.8*inch])
+            sender_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), gray),
+                ('TEXTCOLOR', (0, 0), (-1, 0), black),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), Color(0.98, 0.98, 0.98)),
+                ('GRID', (0, 0), (-1, -1), 1, black),
+            ]))
+            
+            content.append(sender_table)
+            content.append(Spacer(1, 0.2 * inch))
+        
+        # Top keywords
+        if sentiment.keywords:
+            content.append(Paragraph("Key Topics", self.subheading_style))
+            
+            keyword_text = "Most frequently mentioned topics: "
+            top_keywords = sentiment.keywords[:10]  # Top 10 keywords
+            keyword_list = [f"{word} ({count})" for word, count in top_keywords]
+            keyword_text += ", ".join(keyword_list)
+            
+            content.append(Paragraph(keyword_text, self.normal_style))
+            content.append(Spacer(1, 0.1 * inch))
+        
+        # Emotional peaks
+        if sentiment.emotional_peaks:
+            content.append(Paragraph("Most Emotional Messages", self.subheading_style))
+            
+            peaks_text = "The following messages had the strongest emotional content:\n\n"
+            
+            for i, (message, peak_sentiment) in enumerate(sentiment.emotional_peaks[:5], 1):
+                emotion_type = "Positive" if peak_sentiment.compound > 0 else "Negative"
+                text_preview = message.text[:150] + "..." if len(message.text) > 150 else message.text
+                
+                peaks_text += f"<b>{i}. [{emotion_type} - Score: {peak_sentiment.compound:.3f}]</b><br/>"
+                peaks_text += f"{text_preview}<br/>"
+                peaks_text += f"<i>- {message.sender_id} at {message.timestamp.strftime('%Y-%m-%d %H:%M')}</i><br/><br/>"
+            
+            content.append(Paragraph(peaks_text, self.normal_style))
+        
+        # Summary insights
+        if sentiment.summary:
+            content.append(Paragraph("Analysis Summary", self.subheading_style))
+            content.append(Paragraph(sentiment.summary, self.normal_style))
+        
+        return content
+    
+    def _get_sentiment_label(self, compound_score: float) -> str:
+        """Convert compound sentiment score to human-readable label"""
+        if compound_score >= 0.5:
+            return "Very Positive"
+        elif compound_score >= 0.1:
+            return "Positive"
+        elif compound_score >= -0.1:
+            return "Neutral"
+        elif compound_score >= -0.5:
+            return "Negative"
+        else:
+            return "Very Negative"

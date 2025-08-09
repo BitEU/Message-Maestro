@@ -3,7 +3,25 @@
 Statistics Calculator for Message Data
 
 This module provides comprehensive statistical analysis of message conversations
-including temporal patterns, user behavior, and response analytics.
+including temporal pa        # Create stats object
+        stats = MessageStats(
+            total_messages=total_messages,
+            messages_per_sender=dict(messages_per_sender),
+            messages_by_hour=dict(messages_by_hour),
+            messages_by_day_of_week=dict(messages_by_day_of_week),
+            average_message_length=average_message_length,
+            overall_average_length=overall_average_length,
+            response_times=dict(response_times),
+            average_response_times=average_response_times,
+            conversation_count=len(self.conversations),
+            date_range=date_range,
+            most_active_hour=most_active_hour,
+            most_active_day=most_active_day,
+            most_prolific_sender=most_prolific_sender,
+            fastest_responder=fastest_responder,
+            sentiment_data=sentiment_data,
+            sentiment_enabled=include_sentiment
+        )vior, and response analytics.
 """
 
 from typing import Dict, List, Tuple, Optional, Any
@@ -13,6 +31,20 @@ import re
 from dataclasses import dataclass
 
 from parsers.base_parser import Conversation, Message
+
+# Import sentiment analysis types if available
+try:
+    from .sentiment_analyzer import ConversationSentiment, SentimentScore
+    SENTIMENT_AVAILABLE = True
+except ImportError:
+    SENTIMENT_AVAILABLE = False
+    # Define placeholder types for type hints
+    from typing import TYPE_CHECKING
+    if TYPE_CHECKING:
+        from .sentiment_analyzer import ConversationSentiment, SentimentScore
+    else:
+        ConversationSentiment = Any
+        SentimentScore = Any
 
 
 @dataclass
@@ -32,6 +64,9 @@ class MessageStats:
     most_active_day: int
     most_prolific_sender: str
     fastest_responder: str
+    # Sentiment analysis data
+    sentiment_data: Optional[ConversationSentiment] = None
+    sentiment_enabled: bool = False
 
 
 class StatisticsCalculator:
@@ -48,17 +83,19 @@ class StatisticsCalculator:
         self._cache_valid = False
         self.cached_stats = None
     
-    def calculate_stats(self, force_refresh: bool = False) -> MessageStats:
+    def calculate_stats(self, force_refresh: bool = False, include_sentiment: bool = False, sentiment_analyzer=None) -> MessageStats:
         """
         Calculate comprehensive statistics from the loaded conversations
         
         Args:
             force_refresh: If True, recalculate even if cache is valid
+            include_sentiment: If True, include sentiment analysis in results
+            sentiment_analyzer: SentimentAnalyzer instance to use for sentiment analysis
             
         Returns:
             MessageStats object containing all calculated statistics
         """
-        if self._cache_valid and not force_refresh and self.cached_stats:
+        if self._cache_valid and not force_refresh and not include_sentiment and self.cached_stats:
             return self.cached_stats
         
         if not self.conversations:
@@ -74,6 +111,9 @@ class StatisticsCalculator:
         
         all_timestamps = []
         
+        # Sentiment analysis data
+        sentiment_data = None
+        
         # Process each conversation
         for conversation in self.conversations:
             if not conversation.messages:
@@ -81,6 +121,14 @@ class StatisticsCalculator:
                 
             # Sort messages by timestamp for response time calculation
             sorted_messages = sorted(conversation.messages, key=lambda m: m.timestamp)
+            
+            # Process sentiment analysis if requested
+            if include_sentiment and sentiment_analyzer and SENTIMENT_AVAILABLE:
+                try:
+                    sentiment_data = sentiment_analyzer.analyze_conversation(conversation)
+                except Exception as e:
+                    print(f"Warning: Sentiment analysis failed: {e}")
+                    sentiment_data = None
             
             # Process each message
             for i, message in enumerate(sorted_messages):
@@ -157,7 +205,9 @@ class StatisticsCalculator:
             most_active_hour=most_active_hour,
             most_active_day=most_active_day,
             most_prolific_sender=most_prolific_sender,
-            fastest_responder=fastest_responder
+            fastest_responder=fastest_responder,
+            sentiment_data=sentiment_data,
+            sentiment_enabled=include_sentiment
         )
         
         # Cache the results
@@ -195,7 +245,9 @@ class StatisticsCalculator:
             most_active_hour=0,
             most_active_day=0,
             most_prolific_sender="",
-            fastest_responder=""
+            fastest_responder="",
+            sentiment_data=None,
+            sentiment_enabled=False
         )
     
     def get_hourly_activity_pattern(self) -> List[Tuple[str, int]]:
