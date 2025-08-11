@@ -45,7 +45,5 @@ if errorlevel 1 (
 ) else (
     echo Build completed successfully!
     echo.
-    echo Note: The compiled binary will download AI models when needed
-    echo Models will be cached in: %LOCALAPPDATA%\Message-Maestro\models
     pause
 )
