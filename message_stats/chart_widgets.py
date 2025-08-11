@@ -107,18 +107,33 @@ class ChartWidget(QWidget):
     def get_chart_rect(self) -> QRect:
         """Get the rectangle available for chart drawing"""
         if hasattr(self, 'horizontal') and self.horizontal and self.data:
-            # For horizontal charts, calculate needed space for labels
+            # For horizontal charts, calculate needed space for labels and value labels
             max_label_width = 0
+            max_negative_value_width = 0
+            max_positive_value_width = 0
             if self.data:
                 font = QFont("Segoe UI", 9)
                 font_metrics = QFontMetrics(font)
-                for label, _ in self.data:
+                for label, value in self.data:
                     label_width = font_metrics.horizontalAdvance(label)
                     max_label_width = max(max_label_width, label_width)
+                    
+                    value_text = f"{value:.2f}" if abs(value - int(value)) > 0.001 else f"{value:.0f}"
+                    value_width = font_metrics.horizontalAdvance(value_text)
+                    
+                    if value < 0:
+                        max_negative_value_width = max(max_negative_value_width, value_width)
+                    else:
+                        max_positive_value_width = max(max_positive_value_width, value_width)
             
-            # Use at least 80 pixels, but more if needed for labels
-            left_margin = max(80, max_label_width + 20)
-            right_margin = 60
+            # Calculate margins
+            base_left_margin = max(80, max_label_width + 20)
+            negative_value_margin = max_negative_value_width + 15 if max_negative_value_width > 0 else 0
+            left_margin = base_left_margin + negative_value_margin
+            
+            # Right margin needs space for positive value labels
+            positive_value_margin = max_positive_value_width + 15 if max_positive_value_width > 0 else 0
+            right_margin = max(60, positive_value_margin)
         else:
             left_margin = 60
             right_margin = 60
@@ -231,38 +246,91 @@ class BarChart(ChartWidget):
         bar_height = (rect.height() - total_spacing) / bar_count
         spacing = total_spacing / (bar_count + 1)
         
-        # Find max value for scaling
-        max_value = max(value for _, value in self.data) if self.data else 1
-        if max_value == 0:
-            max_value = 1
+        # Find min and max values for scaling (handle negative values)
+        values = [value for _, value in self.data]
+        min_value = min(values) if values else -1
+        max_value = max(values) if values else 1
+        
+        # Ensure we have some range to work with
+        if abs(max_value - min_value) < 0.001:
+            if min_value >= 0:
+                min_value = 0
+                max_value = 1
+            else:
+                min_value = -1
+                max_value = 0
+        
+        # Calculate zero baseline position
+        value_range = max_value - min_value
+        zero_ratio = (0 - min_value) / value_range if value_range > 0 else 0.5
+        zero_x = rect.x() + zero_ratio * rect.width()
+        
+        # Draw zero baseline if we have both positive and negative values
+        if min_value < 0 and max_value > 0:
+            painter.setPen(QPen(self.grid_color, 2))
+            painter.drawLine(int(zero_x), rect.y(), int(zero_x), rect.bottom())
         
         # Draw bars
         for i, (label, value) in enumerate(self.data):
             # Calculate bar position and width
             y = rect.y() + spacing + i * (bar_height + spacing / bar_count)
-            bar_width = (value / max_value) * rect.width() * self.animation_progress
             
-            # Color selection
-            color = self.chart_colors[i % len(self.chart_colors)]
+            # Calculate bar width and position based on value
+            bar_width = abs((value / value_range) * rect.width() * self.animation_progress)
+            
+            if value >= 0:
+                # Positive bar: starts at zero baseline, extends right
+                bar_x = zero_x
+            else:
+                # Negative bar: starts left of zero baseline, extends to zero baseline
+                bar_x = zero_x - bar_width
+            
+            # Color selection - use different colors for positive/negative
+            if value >= 0:
+                color = self.chart_colors[i % len(self.chart_colors)]
+            else:
+                # Use red/orange tones for negative values
+                color = QColor(255, 69, 58) if i % 2 == 0 else QColor(255, 149, 0)
             
             # Hover effect
             if i == self.hover_index:
                 color = color.lighter(120)
             
             # Draw bar with gradient
-            gradient = QLinearGradient(rect.x(), 0, rect.x() + bar_width, 0)
-            gradient.setColorAt(0, color.darker(140))
-            gradient.setColorAt(1, color)
+            if value >= 0:
+                gradient = QLinearGradient(bar_x, 0, bar_x + bar_width, 0)
+                gradient.setColorAt(0, color.darker(140))
+                gradient.setColorAt(1, color)
+            else:
+                gradient = QLinearGradient(bar_x, 0, bar_x + bar_width, 0)
+                gradient.setColorAt(0, color)
+                gradient.setColorAt(1, color.darker(140))
             
-            painter.fillRect(rect.x(), int(y), int(bar_width), int(bar_height), gradient)
+            painter.fillRect(int(bar_x), int(y), int(bar_width), int(bar_height), gradient)
             
-            # Draw value at end of bar
+            # Draw value at appropriate end of bar
             painter.setPen(self.text_color)
             font = QFont("Segoe UI", 9)
             painter.setFont(font)
             
-            value_text = f"{value:.0f}" if value == int(value) else f"{value:.1f}"
-            painter.drawText(int(rect.x() + bar_width + 5), int(y + bar_height / 2), value_text)
+            value_text = f"{value:.2f}" if abs(value - int(value)) > 0.001 else f"{value:.0f}"
+            font_metrics = QFontMetrics(font)
+            text_width = font_metrics.horizontalAdvance(value_text)
+            
+            if value >= 0:
+                # Positive: draw value to the right of the bar
+                text_x = int(bar_x + bar_width + 8)  # More spacing
+                # Make sure we don't go beyond the chart area
+                if text_x + text_width > rect.right():
+                    text_x = int(rect.right() - text_width - 5)
+            else:
+                # Negative: draw value to the left of the bar  
+                text_x = int(bar_x - text_width - 8)  # More spacing
+                # Make sure we don't go beyond the left edge
+                if text_x < rect.x():
+                    text_x = rect.x() + 5
+            
+            painter.drawText(text_x, int(y + bar_height / 2 + 4), value_text)
             
             # Draw label
             label_rect = QRect(10, int(y), rect.x() - 15, int(bar_height))
@@ -302,10 +370,39 @@ class BarChart(ChartWidget):
                 bar_height = (chart_rect.height() - total_spacing) / bar_count
                 spacing = total_spacing / (bar_count + 1)
                 
+                # Get the same scaling info as in _draw_horizontal_bars
+                values = [value for _, value in self.data]
+                min_value = min(values) if values else -1
+                max_value = max(values) if values else 1
+                
+                if abs(max_value - min_value) < 0.001:
+                    if min_value >= 0:
+                        min_value = 0
+                        max_value = 1
+                    else:
+                        min_value = -1
+                        max_value = 0
+                
+                value_range = max_value - min_value
+                zero_ratio = (0 - min_value) / value_range if value_range > 0 else 0.5
+                zero_x = chart_rect.x() + zero_ratio * chart_rect.width()
+                
                 for i in range(bar_count):
                     y = chart_rect.y() + spacing + i * (bar_height + spacing / bar_count)
                     if y <= pos.y() <= y + bar_height:
-                        self.hover_index = i
+                        # Check if mouse is over the actual bar (positive or negative)
+                        _, value = self.data[i]
+                        bar_width = abs((value / value_range) * chart_rect.width())
+                        
+                        if value >= 0:
+                            bar_x = zero_x
+                            bar_right = bar_x + bar_width
+                        else:
+                            bar_right = zero_x
+                            bar_x = zero_x - bar_width
+                        
+                        if bar_x <= pos.x() <= bar_right:
+                            self.hover_index = i
                         break
         else:
             # Vertical bars
