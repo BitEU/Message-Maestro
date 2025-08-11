@@ -505,10 +505,6 @@ class SentimentDashboardTab(QWidget):
         self.current_sentiment = sentiment_result
         self.display_results(sentiment_result)
         self.reset_ui()
-        
-        # Show completion message
-        QMessageBox.information(self, "Analysis Complete", 
-                              "Sentiment analysis completed successfully!")
     
     @pyqtSlot(str)
     def on_analysis_error(self, error_msg: str):
