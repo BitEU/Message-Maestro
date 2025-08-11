@@ -12,8 +12,8 @@ from .tag_config import TagConfig
 class TagManager:
     """Enhanced tag management with keyboard shortcuts and advanced features"""
     
-    def __init__(self, storage_path: Optional[str] = None):
-        self.storage = TagStorage(storage_path)
+    def __init__(self, case_file_path: Optional[str] = None):
+        self.storage = TagStorage(case_file_path)
         self.config = TagConfig()
         
         # Load or initialize tags
@@ -213,6 +213,18 @@ class TagManager:
             return True
         except Exception:
             return False
+    
+    def reinitialize_for_case(self, case_file_path: str):
+        """Reinitialize tag manager for a new case file"""
+        self.storage = TagStorage(case_file_path)
+        
+        # Load tags for this specific case, or use defaults if none exist
+        self.tags = self.storage.load_tags() or self._get_default_tags()
+        self.message_tags = self.storage.load_message_tags() or {}
+        
+        # Save initial state if this is a fresh case
+        if not self.storage.tags_exist():
+            self.save_data()
     
     def save_data(self):
         """Save all tag data to storage"""

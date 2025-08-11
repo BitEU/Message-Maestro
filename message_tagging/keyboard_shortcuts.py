@@ -16,10 +16,10 @@ class TagShortcutManager(QObject):
     tag_requested = pyqtSignal(str)  # Emitted when a tag shortcut is pressed
     spacebar_tag_changed = pyqtSignal(str)  # Emitted when spacebar tag assignment changes
     
-    def __init__(self, parent_widget: QWidget, storage_path: Optional[str] = None):
+    def __init__(self, parent_widget: QWidget, case_file_path: Optional[str] = None):
         super().__init__()
         self.parent_widget = parent_widget
-        self.storage = TagStorage(storage_path)
+        self.storage = TagStorage(case_file_path)
         
         # Shortcut mappings
         self.shortcuts = {}  # QShortcut objects
@@ -250,3 +250,22 @@ class TagShortcutManager(QObject):
         except Exception as e:
             print(f"Error importing shortcut configuration: {e}")
             return False
+    
+    def reinitialize_for_case(self, case_file_path: str):
+        """Reinitialize shortcut manager for a new case file"""
+        # Clear existing shortcuts
+        for shortcut in self.shortcuts.values():
+            shortcut.deleteLater()
+        self.shortcuts.clear()
+        self.shortcut_to_tag.clear()
+        self.tag_to_shortcut.clear()
+        self.spacebar_tag_id = None
+        
+        # Update storage
+        self.storage = TagStorage(case_file_path)
+        
+        # Load configuration for this case
+        self.load_configuration()
+        
+        # Set up shortcuts
+        self.setup_default_shortcuts()

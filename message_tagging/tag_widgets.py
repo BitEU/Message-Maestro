@@ -213,17 +213,16 @@ class TagManagerDialog(QDialog):
         header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(header)
         
-        # Create tabs-like sections
-        self.setup_tags_section(layout)
-        self.setup_shortcuts_section(layout)
+        # Combined tags and shortcuts section
+        self.setup_combined_tags_section(layout)
         self.setup_spacebar_section(layout)
         
         # Buttons
         self.setup_buttons(layout)
     
-    def setup_tags_section(self, parent_layout):
-        """Set up the tags management section"""
-        # Tags section
+    def setup_combined_tags_section(self, parent_layout):
+        """Set up the combined tags management and shortcuts section"""
+        # Combined tags and shortcuts section
         tags_group = QGroupBox("Tag Management")
         tags_group.setStyleSheet("""
             QGroupBox {
@@ -242,73 +241,31 @@ class TagManagerDialog(QDialog):
         """)
         tags_layout = QVBoxLayout(tags_group)
         
-        # Tags list
+        # Description
+        desc = QLabel("Edit tag names, colors, and assign keyboard shortcuts (Ctrl+1 through Ctrl+9):")
+        desc.setStyleSheet("color: #8b8b8b; margin-bottom: 15px;")
+        desc.setWordWrap(True)
+        tags_layout.addWidget(desc)
+        
+        # Tags list with integrated shortcuts
         tags_scroll = QScrollArea()
         tags_widget = QWidget()
         self.tags_layout = QVBoxLayout(tags_widget)
         
+        # Available shortcuts for assignment
+        available_shortcuts = ['Ctrl+1', 'Ctrl+2', 'Ctrl+3', 'Ctrl+4', 'Ctrl+5',
+                             'Ctrl+6', 'Ctrl+7', 'Ctrl+8', 'Ctrl+9']
+        
         for tag_id, tag_info in self.tag_manager.get_tags().items():
-            tag_row = self.create_tag_row(tag_id, tag_info)
+            tag_row = self.create_combined_tag_row(tag_id, tag_info, available_shortcuts)
             self.tags_layout.addWidget(tag_row)
         
         tags_scroll.setWidget(tags_widget)
         tags_scroll.setWidgetResizable(True)
-        tags_scroll.setMaximumHeight(300)
+        tags_scroll.setMaximumHeight(400)
         tags_layout.addWidget(tags_scroll)
         
         parent_layout.addWidget(tags_group)
-    
-    def setup_shortcuts_section(self, parent_layout):
-        """Set up the keyboard shortcuts section"""
-        shortcuts_group = QGroupBox("Keyboard Shortcuts (Ctrl+1 through Ctrl+9)")
-        shortcuts_group.setStyleSheet("""
-            QGroupBox {
-                font-weight: bold;
-                color: white;
-                border: 2px solid #2f3336;
-                border-radius: 5px;
-                margin-top: 10px;
-                padding-top: 10px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px 0 5px;
-            }
-        """)
-        shortcuts_layout = QVBoxLayout(shortcuts_group)
-        
-        # Description
-        desc = QLabel("Assign Ctrl+1 through Ctrl+9 shortcuts to your most-used tags:")
-        desc.setStyleSheet("color: #8b8b8b; margin-bottom: 10px;")
-        desc.setWordWrap(True)
-        shortcuts_layout.addWidget(desc)
-        
-        # Shortcuts list
-        shortcuts_scroll = QScrollArea()
-        shortcuts_widget = QWidget()
-        self.shortcuts_layout = QVBoxLayout(shortcuts_widget)
-        
-        # Create shortcut assignment widgets
-        tags = self.tag_manager.get_tags()
-        available_shortcuts = ['Ctrl+1', 'Ctrl+2', 'Ctrl+3', 'Ctrl+4', 'Ctrl+5',
-                             'Ctrl+6', 'Ctrl+7', 'Ctrl+8', 'Ctrl+9']
-        
-        for tag_id, tag_info in tags.items():
-            current_shortcut = self.shortcut_manager.get_shortcut_for_tag(tag_id)
-            shortcut_widget = ShortcutAssignmentWidget(
-                tag_id, tag_info, current_shortcut, available_shortcuts, self
-            )
-            shortcut_widget.shortcut_changed.connect(self.on_shortcut_assignment_changed)
-            self.shortcut_widgets[tag_id] = shortcut_widget
-            self.shortcuts_layout.addWidget(shortcut_widget)
-        
-        shortcuts_scroll.setWidget(shortcuts_widget)
-        shortcuts_scroll.setWidgetResizable(True)
-        shortcuts_scroll.setMaximumHeight(250)
-        shortcuts_layout.addWidget(shortcuts_scroll)
-        
-        parent_layout.addWidget(shortcuts_group)
     
     def setup_spacebar_section(self, parent_layout):
         """Set up the spacebar assignment section"""
@@ -340,17 +297,22 @@ class TagManagerDialog(QDialog):
         
         parent_layout.addWidget(spacebar_group)
     
-    def create_tag_row(self, tag_id: str, tag_info: Dict) -> QWidget:
-        """Create a row widget for tag editing"""
+    def create_combined_tag_row(self, tag_id: str, tag_info: Dict, available_shortcuts: List[str]) -> QWidget:
+        """Create a combined row widget for tag editing with shortcut assignment"""
         row_widget = QWidget()
         row_layout = QHBoxLayout(row_widget)
-        row_layout.setContentsMargins(0, 5, 0, 5)
+        row_layout.setContentsMargins(0, 8, 0, 8)
         
         # Color button
         color_btn = QPushButton()
-        color_btn.setFixedSize(30, 30)
-        color_btn.setStyleSheet(f"background-color: {tag_info['color']}; border: none; border-radius: 5px;")
+        color_btn.setFixedSize(35, 35)
+        color_btn.setStyleSheet(f"""
+            background-color: {tag_info['color']}; 
+            border: 2px solid #2f3336; 
+            border-radius: 6px;
+        """)
         color_btn.clicked.connect(lambda checked, tid=tag_id: self.pick_color(tid))
+        color_btn.setToolTip("Click to change color")
         row_layout.addWidget(color_btn)
         
         # Name entry
@@ -359,34 +321,60 @@ class TagManagerDialog(QDialog):
             background-color: #252525; 
             color: white; 
             border: 1px solid #2f3336; 
-            padding: 5px;
-            border-radius: 3px;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 13px;
         """)
+        name_entry.setMinimumWidth(150)
         row_layout.addWidget(name_entry)
         
         # Usage count
         usage_count = self.tag_manager.get_tag_usage_count(tag_id)
         usage_label = QLabel(f"{usage_count} messages")
-        usage_label.setStyleSheet("color: #8b8b8b;")
+        usage_label.setStyleSheet("color: #8b8b8b; font-size: 12px;")
         usage_label.setMinimumWidth(80)
+        usage_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         row_layout.addWidget(usage_label)
         
-        # Current shortcut display
+        # Shortcut assignment combo
         current_shortcut = self.shortcut_manager.get_shortcut_for_tag(tag_id)
-        shortcut_text = current_shortcut or "None"
-        if current_shortcut == 'Space':
-            shortcut_text = "Spacebar"
-        shortcut_label = QLabel(shortcut_text)
-        shortcut_label.setStyleSheet("color: #8b8b8b; font-family: monospace;")
-        shortcut_label.setMinimumWidth(60)
-        row_layout.addWidget(shortcut_label)
+        shortcut_combo = QComboBox()
+        shortcut_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #252525;
+                color: white;
+                border: 1px solid #2f3336;
+                padding: 6px;
+                border-radius: 4px;
+                font-size: 12px;
+                min-width: 100px;
+            }
+        """)
+        
+        # Add shortcut options
+        shortcut_combo.addItem("No shortcut", "")
+        for shortcut in available_shortcuts:
+            shortcut_combo.addItem(shortcut, shortcut)
+        
+        # Set current selection
+        if current_shortcut and current_shortcut in available_shortcuts:
+            index = shortcut_combo.findData(current_shortcut)
+            if index >= 0:
+                shortcut_combo.setCurrentIndex(index)
+        
+        # Connect shortcut change handler
+        shortcut_combo.currentTextChanged.connect(
+            lambda: self.on_combined_shortcut_changed(tag_id, shortcut_combo)
+        )
+        
+        row_layout.addWidget(shortcut_combo)
         
         self.tag_widgets[tag_id] = {
             'name_entry': name_entry,
             'color_btn': color_btn,
             'color': tag_info['color'],
             'usage_label': usage_label,
-            'shortcut_label': shortcut_label
+            'shortcut_combo': shortcut_combo
         }
         
         return row_widget
@@ -399,17 +387,7 @@ class TagManagerDialog(QDialog):
         buttons_layout = QHBoxLayout(buttons_widget)
         buttons_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Export/Import buttons
-        export_btn = QPushButton("Export Config")
-        export_btn.setStyleSheet(self.get_button_style("#6c757d"))
-        export_btn.clicked.connect(self.export_configuration)
-        
-        import_btn = QPushButton("Import Config")
-        import_btn.setStyleSheet(self.get_button_style("#6c757d"))
-        import_btn.clicked.connect(self.import_configuration)
-        
-        buttons_layout.addWidget(export_btn)
-        buttons_layout.addWidget(import_btn)
+        # Add stretch to right-align buttons
         buttons_layout.addStretch()
         
         # Save/Cancel buttons
@@ -464,32 +442,42 @@ class TagManagerDialog(QDialog):
         
         if color.isValid():
             self.tag_widgets[tag_id]['color'] = color.name()
-            self.tag_widgets[tag_id]['color_btn'].setStyleSheet(
-                f"background-color: {color.name()}; border: none; border-radius: 5px;"
-            )
+            self.tag_widgets[tag_id]['color_btn'].setStyleSheet(f"""
+                background-color: {color.name()}; 
+                border: 2px solid #2f3336; 
+                border-radius: 6px;
+            """)
     
-    def on_shortcut_assignment_changed(self, tag_id: str, new_shortcut: str):
-        """Handle shortcut assignment change"""
-        # Update the shortcut label in the tag row
-        if tag_id in self.tag_widgets:
-            shortcut_text = new_shortcut or "None"
-            if new_shortcut == 'Space':
-                shortcut_text = "Spacebar"
-            self.tag_widgets[tag_id]['shortcut_label'].setText(shortcut_text)
+    def on_combined_shortcut_changed(self, tag_id: str, combo_box: QComboBox):
+        """Handle shortcut assignment change in combined view"""
+        new_shortcut = combo_box.currentData()
+        
+        # Remove old shortcut assignment if any
+        old_shortcut = self.shortcut_manager.get_shortcut_for_tag(tag_id)
+        if old_shortcut and old_shortcut != new_shortcut:
+            # Update other combos that had this shortcut to "No shortcut"
+            for other_tag_id, widgets in self.tag_widgets.items():
+                if other_tag_id != tag_id and 'shortcut_combo' in widgets:
+                    if widgets['shortcut_combo'].currentData() == new_shortcut:
+                        widgets['shortcut_combo'].setCurrentIndex(0)  # "No shortcut"
+        
+        # If assigning a shortcut that's already taken, remove it from the other tag
+        if new_shortcut:
+            for other_tag_id, widgets in self.tag_widgets.items():
+                if other_tag_id != tag_id and 'shortcut_combo' in widgets:
+                    if widgets['shortcut_combo'].currentData() == new_shortcut:
+                        widgets['shortcut_combo'].setCurrentIndex(0)  # "No shortcut"
     
     def on_spacebar_assignment_changed(self, tag_id: str):
         """Handle spacebar assignment change"""
-        # Update shortcut labels for spacebar
-        for tid, widgets in self.tag_widgets.items():
-            if tid == tag_id:
-                widgets['shortcut_label'].setText("Spacebar")
-            elif widgets['shortcut_label'].text() == "Spacebar":
-                widgets['shortcut_label'].setText("None")
+        # In the combined interface, spacebar assignment is handled separately
+        # from the main shortcut combos, so no need to update them here
+        pass
     
     def save_changes(self):
         """Save all changes"""
         try:
-            # Save tag changes
+            # Save tag changes (name and color)
             for tag_id, widgets in self.tag_widgets.items():
                 name = widgets['name_entry'].text().strip()
                 color = widgets['color']
@@ -497,16 +485,19 @@ class TagManagerDialog(QDialog):
                 if name:  # Only save if name is not empty
                     self.tag_manager.update_tag(tag_id, name, color)
             
-            # Save shortcut changes
-            for tag_id, shortcut_widget in self.shortcut_widgets.items():
-                new_shortcut = shortcut_widget.current_shortcut
-                if new_shortcut:
-                    self.shortcut_manager.assign_shortcut(new_shortcut, tag_id)
-                else:
-                    # Remove shortcut if none assigned
+            # Save shortcut changes from combined interface
+            for tag_id, widgets in self.tag_widgets.items():
+                if 'shortcut_combo' in widgets:
+                    new_shortcut = widgets['shortcut_combo'].currentData()
                     old_shortcut = self.shortcut_manager.get_shortcut_for_tag(tag_id)
-                    if old_shortcut:
+                    
+                    # Remove old shortcut if it exists
+                    if old_shortcut and old_shortcut != new_shortcut:
                         self.shortcut_manager.remove_shortcut(old_shortcut)
+                    
+                    # Assign new shortcut if one is selected
+                    if new_shortcut:
+                        self.shortcut_manager.assign_shortcut(new_shortcut, tag_id)
             
             # Save spacebar assignment
             selected_tag = self.spacebar_widget.tag_combo.currentData()
@@ -516,16 +507,6 @@ class TagManagerDialog(QDialog):
             
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save changes: {e}")
-    
-    def export_configuration(self):
-        """Export tag and shortcut configuration"""
-        # Implementation for export functionality
-        QMessageBox.information(self, "Export", "Export functionality coming soon!")
-    
-    def import_configuration(self):
-        """Import tag and shortcut configuration"""
-        # Implementation for import functionality
-        QMessageBox.information(self, "Import", "Import functionality coming soon!")
     
     def apply_dark_theme(self):
         """Apply dark theme to the dialog"""

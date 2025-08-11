@@ -110,6 +110,7 @@ class AnimatedButton(QPushButton):
 class MessageBubble(QFrame):
     """Custom message bubble widget with GPU-accelerated rendering"""
     contextMenuRequested = pyqtSignal(QPoint, object, str)
+    messageSelected = pyqtSignal(object, str)  # message, conversation_id
     
     def __init__(self, message: Message, conversation_id: str, is_sent: bool, 
                  timestamp: str, tag_info: Dict = None, parent=None):
@@ -120,6 +121,7 @@ class MessageBubble(QFrame):
         self.timestamp = timestamp
         self.tag_info = tag_info
         self.is_highlighted = False
+        self.is_selected = False
         
         self.setup_ui()
         
@@ -146,6 +148,8 @@ class MessageBubble(QFrame):
         self.text_label.setWordWrap(True)
         self.text_label.setMaximumWidth(350)
         self.text_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        # Install event filter to handle clicks on text area
+        self.text_label.installEventFilter(self)
         self.bubble_inner_layout.addWidget(self.text_label)
         
         # Tag indicator (initially None, will be set by update_tag_display)
@@ -216,6 +220,8 @@ class MessageBubble(QFrame):
         highlight_style = ""
         if self.is_highlighted:
             highlight_style = f"border: 2px solid #ffcc00;"
+        elif self.is_selected:
+            highlight_style = f"border: 2px solid #1d9bf0; background-color: {bubble_color}CC;"
         
         # Apply styles with higher specificity to override global theme
         self.bubble.setStyleSheet(f"""
@@ -253,6 +259,28 @@ class MessageBubble(QFrame):
         """Set highlight state for search results"""
         self.is_highlighted = highlighted
         self.update_style()
+    
+    def set_selected(self, selected: bool):
+        """Set selection state for keyboard shortcuts"""
+        self.is_selected = selected
+        self.update_style()
+    
+    def mousePressEvent(self, event):
+        """Handle mouse press events for selection"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            # Emit selection signal for left clicks
+            self.messageSelected.emit(self.message, self.conversation_id)
+        super().mousePressEvent(event)
+    
+    def eventFilter(self, obj, event):
+        """Event filter to handle clicks on text label"""
+        if obj == self.text_label and event.type() == event.Type.MouseButtonPress:
+            if event.button() == Qt.MouseButton.LeftButton:
+                # Forward left click to the bubble
+                self.messageSelected.emit(self.message, self.conversation_id)
+                # Don't consume the event - let text selection still work
+                return False
+        return super().eventFilter(obj, event)
     
     def contextMenuEvent(self, event):
         self.contextMenuRequested.emit(event.globalPos(), self.message, self.conversation_id)
@@ -449,6 +477,7 @@ class ModernMessageViewer(QMainWindow):
         self.conv_items = []
         self.selected_parser = "auto"
         self.message_widgets = {}  # {(conv_id, msg_id): widget}
+        self.selected_message_widget = None  # Currently selected message for keyboard shortcuts
         
         # Search state
         self.search_results = []
@@ -796,7 +825,7 @@ class ModernMessageViewer(QMainWindow):
     def setup_shortcuts(self):
         """Setup keyboard shortcuts"""
         # Initialize the shortcut manager
-        self.shortcut_manager = TagShortcutManager(self)
+        self.shortcut_manager = TagShortcutManager(self, self.current_file)
         
         # Connect shortcut manager signals
         self.shortcut_manager.tag_requested.connect(self.handle_shortcut_tag_request)
@@ -817,27 +846,39 @@ class ModernMessageViewer(QMainWindow):
         find_prev_action.setShortcut(QKeySequence("Ctrl+Shift+G"))
         find_prev_action.triggered.connect(self.find_previous)
         self.addAction(find_prev_action)
+        
+        # Escape to deselect message
+        deselect_action = QAction("Deselect Message", self)
+        deselect_action.setShortcut(QKeySequence("Escape"))
+        deselect_action.triggered.connect(self.deselect_current_message)
+        self.addAction(deselect_action)
     
     def handle_shortcut_tag_request(self, tag_id: str):
         """Handle tag request from keyboard shortcut"""
-        # Find the currently focused or selected message
-        # For now, we'll use the last right-clicked message if available
-        if hasattr(self, 'current_context_message'):
-            message, conversation_id = self.current_context_message
-            
+        # Use selected message (from left-click) first, then fall back to right-clicked message
+        target_message = None
+        target_conversation_id = None
+        
+        if self.selected_message_widget:
+            target_message = self.selected_message_widget.message
+            target_conversation_id = self.selected_message_widget.conversation_id
+        elif hasattr(self, 'current_context_message'):
+            target_message, target_conversation_id = self.current_context_message
+        
+        if target_message and target_conversation_id:
             # Check if message already has this tag
-            current_tag = self.tag_manager.get_message_tag(conversation_id, message.id)
+            current_tag = self.tag_manager.get_message_tag(target_conversation_id, target_message.id)
             
             if current_tag and current_tag['id'] == tag_id:
                 # If same tag, remove it
-                self.remove_tag_from_message()
+                self.remove_tag_from_selected_message(target_message, target_conversation_id)
             else:
                 # Apply the new tag
-                self.tag_current_message(tag_id)
+                self.tag_selected_message(target_message, target_conversation_id, tag_id)
         else:
             # No message selected, show a brief message
             if hasattr(self, 'status_bar'):
-                self.status_bar.showMessage("Right-click on a message first to use keyboard shortcuts", 2000)
+                self.status_bar.showMessage("Click on a message first to use keyboard shortcuts (Escape to deselect)", 3000)
 
     def get_shortcut_display_for_tag(self, tag_id: str) -> str:
         """Get shortcut display text for a tag"""
@@ -1251,6 +1292,11 @@ class ModernMessageViewer(QMainWindow):
             self.file_lines = file_lines
             self.current_file = file_path
             
+            # Reinitialize tag managers for this case file
+            self.tag_manager.reinitialize_for_case(file_path)
+            if self.shortcut_manager:
+                self.shortcut_manager.reinitialize_for_case(file_path)
+            
             # Clear previous data
             self.message_widgets.clear()
             
@@ -1350,12 +1396,13 @@ class ModernMessageViewer(QMainWindow):
         if not self.current_conversation:
             return
         
-        # Clear messages
+        # Clear messages and selected message
         while self.msg_list_layout.count():
             child = self.msg_list_layout.takeAt(0)
             if child.widget():
                 child.widget().deleteLater()
         self.message_widgets.clear()
+        self.selected_message_widget = None
         
         conversation = self.current_conversation
         
@@ -1398,6 +1445,7 @@ class ModernMessageViewer(QMainWindow):
                 # Create message bubble
                 bubble = MessageBubble(message, conversation.id, is_sent, formatted_time, tag_info)
                 bubble.contextMenuRequested.connect(self.show_message_context_menu)
+                bubble.messageSelected.connect(self.select_message_for_shortcuts)
                 
                 if should_highlight:
                     bubble.set_highlighted(True)
@@ -1439,6 +1487,65 @@ class ModernMessageViewer(QMainWindow):
             self.current_tag_action.setVisible(False)
         
         self.context_menu.exec(pos)
+    
+    def select_message_for_shortcuts(self, message: Message, conversation_id: str):
+        """Select a message for keyboard shortcut operations"""
+        # Clear previous selection
+        if self.selected_message_widget:
+            self.selected_message_widget.set_selected(False)
+        
+        # Find and select the new message widget
+        widget_key = (conversation_id, message.id)
+        if widget_key in self.message_widgets:
+            self.selected_message_widget = self.message_widgets[widget_key]
+            self.selected_message_widget.set_selected(True)
+            
+            # Update status bar to show selection
+            if hasattr(self, 'status_bar'):
+                self.status_bar.showMessage(f"Selected message at line {message.line_number}", 1000)
+    
+    def deselect_current_message(self):
+        """Deselect the currently selected message"""
+        if self.selected_message_widget:
+            self.selected_message_widget.set_selected(False)
+            self.selected_message_widget = None
+            
+            # Update status bar to show deselection
+            if hasattr(self, 'status_bar'):
+                self.status_bar.showMessage("Message deselected", 1000)
+    
+    def tag_selected_message(self, message: Message, conversation_id: str, tag_id: str):
+        """Tag a selected message"""
+        # Check if message already has a tag
+        current_tag = self.tag_manager.get_message_tag(conversation_id, message.id)
+        
+        # If message already has the same tag, don't do anything
+        if current_tag and current_tag['id'] == tag_id:
+            return
+        
+        # Apply the new tag (this will automatically replace any existing tag)
+        self.tag_manager.tag_message(conversation_id, message.id, tag_id)
+        
+        # Update the specific message widget instead of redrawing everything
+        widget_key = (conversation_id, message.id)
+        if widget_key in self.message_widgets:
+            new_tag_info = self.tag_manager.get_message_tag(conversation_id, message.id)
+            self.message_widgets[widget_key].set_tag_info(new_tag_info)
+        
+        # Update conversation list to show tagged count
+        self.populate_conversation_list()
+    
+    def remove_tag_from_selected_message(self, message: Message, conversation_id: str):
+        """Remove tag from a selected message"""
+        self.tag_manager.untag_message(conversation_id, message.id)
+        
+        # Update the specific message widget instead of redrawing everything
+        widget_key = (conversation_id, message.id)
+        if widget_key in self.message_widgets:
+            self.message_widgets[widget_key].set_tag_info(None)
+        
+        # Update conversation list to show tagged count
+        self.populate_conversation_list()
     
     def tag_current_message(self, tag_id: str):
         """Tag the currently selected message"""

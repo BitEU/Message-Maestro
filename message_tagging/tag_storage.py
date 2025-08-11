@@ -11,19 +11,26 @@ from pathlib import Path
 class TagStorage:
     """Handles saving and loading tag data"""
     
-    def __init__(self, storage_path: Optional[str] = None):
-        if storage_path:
-            self.storage_dir = Path(storage_path)
+    def __init__(self, case_file_path: Optional[str] = None):
+        self.case_file_path = case_file_path
+        
+        if case_file_path:
+            # Store tag data next to the case file
+            case_file = Path(case_file_path)
+            case_dir = case_file.parent
+            case_name = case_file.stem
+            
+            self.tags_file = case_dir / f"{case_name}_tags.json"
+            self.message_tags_file = case_dir / f"{case_name}_message_tags.json" 
+            self.config_file = case_dir / f"{case_name}_tag_config.json"
         else:
-            # Default to a tags directory in the current working directory
+            # Fallback to global storage if no case file specified
             self.storage_dir = Path.cwd() / 'tags_data'
-        
-        # Ensure storage directory exists
-        self.storage_dir.mkdir(exist_ok=True)
-        
-        self.tags_file = self.storage_dir / 'tags.json'
-        self.message_tags_file = self.storage_dir / 'message_tags.json'
-        self.config_file = self.storage_dir / 'tag_config.json'
+            self.storage_dir.mkdir(exist_ok=True)
+            
+            self.tags_file = self.storage_dir / 'tags.json'
+            self.message_tags_file = self.storage_dir / 'message_tags.json'
+            self.config_file = self.storage_dir / 'tag_config.json'
     
     def tags_exist(self) -> bool:
         """Check if tag files already exist"""
