@@ -1,8 +1,3 @@
 WISHFUL:
 
-1. Keyboard Shortcuts Enhancement
-    a. CTRL+1, CTRL+2, etc for tagging, plus the ability to assign spacebar to one specific tag of the user's choosing
-2. Save and loading project (saving which and what items were tagged)
-    a. Also an autosave every five feature to a temp folder that can be recovered if program unexpectably closes/crashes/power loss
-    b. This save feature should be an archive of not only the conversation, but also of any/all the custom tags, what messages have tags, etc
 3. HTML exporting
