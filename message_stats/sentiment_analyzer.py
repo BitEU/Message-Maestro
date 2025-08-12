@@ -17,23 +17,51 @@ from collections import defaultdict, Counter
 # Core dependencies
 import numpy as np
 
-# NLTK for sentiment analysis
+# Advanced NLP libraries for sentiment analysis
 try:
     import nltk
     from nltk.sentiment import SentimentIntensityAnalyzer
     from nltk.tokenize import word_tokenize, sent_tokenize
-    from nltk.corpus import stopwords
+    from nltk.corpus import stopwords, wordnet
     from nltk.probability import FreqDist
+    from nltk.tag import pos_tag
+    from nltk.chunk import ne_chunk
+    from nltk.stem import WordNetLemmatizer
     NLTK_AVAILABLE = True
 except ImportError:
     NLTK_AVAILABLE = False
 
-# TextBlob as an alternative
 try:
     from textblob import TextBlob
     TEXTBLOB_AVAILABLE = True
 except ImportError:
     TEXTBLOB_AVAILABLE = False
+
+try:
+    from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer as VaderAnalyzer
+    VADER_AVAILABLE = True
+except ImportError:
+    VADER_AVAILABLE = False
+
+try:
+    from afinn import Afinn
+    AFINN_AVAILABLE = True
+except ImportError:
+    AFINN_AVAILABLE = False
+
+try:
+    import emot
+    EMOT_AVAILABLE = True
+except ImportError:
+    EMOT_AVAILABLE = False
+
+try:
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    from sklearn.naive_bayes import MultinomialNB
+    from sklearn.pipeline import Pipeline
+    SKLEARN_AVAILABLE = True
+except ImportError:
+    SKLEARN_AVAILABLE = False
 
 from parsers.base_parser import Conversation, Message
 
@@ -67,84 +95,169 @@ class SentimentAnalyzer:
     Lightweight sentiment analyzer using NLTK and TextBlob
     """
     
-    def __init__(self, method: str = "auto"):
+    def __init__(self, method: str = "auto", enable_advanced: bool = False):
         """
         Initialize the sentiment analyzer
         
         Args:
-            method: "auto", "nltk", "textblob", or "hybrid"
+            method: "auto", "nltk", "textblob", "ensemble"
+            enable_advanced: Enable advanced NLP features
         """
         self.method = method
-        self.analyzer = None
+        self.enable_advanced = enable_advanced
+        self.analyzers = {}
+        self.lemmatizer = None
+        self.custom_lexicon = {}
+        self.stop_words = set()
         
-        # Check available methods
-        self.available_methods = self._check_available_methods()
+        # Simple method selection for now
+        if NLTK_AVAILABLE and method in ["auto", "nltk", "ensemble"]:
+            self._init_nltk_simple()
+        elif TEXTBLOB_AVAILABLE and method in ["auto", "textblob"]:
+            self.method = "textblob"
+        else:
+            self.method = "regex"
         
-        # Initialize the chosen method
-        self._initialize_analyzer()
+        self.available_methods = [self.method]
     
-    def _check_available_methods(self) -> List[str]:
-        """Check which sentiment analysis methods are available"""
-        methods = []
-        
-        if NLTK_AVAILABLE:
-            methods.append("nltk")
-        
-        if TEXTBLOB_AVAILABLE:
-            methods.append("textblob")
-        
-        return methods
-    
-    def _initialize_analyzer(self):
-        """Initialize the chosen sentiment analysis method"""
-        if self.method == "auto":
-            # Choose the best available method
-            if "nltk" in self.available_methods:
-                self._init_nltk()
-            elif "textblob" in self.available_methods:
-                self._init_textblob()
-            else:
-                raise RuntimeError("No sentiment analysis method available. Please install NLTK or TextBlob.")
-        
-        elif self.method == "nltk":
-            self._init_nltk()
-        
-        elif self.method == "textblob":
-            self._init_textblob()
-        
-        elif self.method == "hybrid":
-            # Initialize multiple methods for comparison
-            if "nltk" in self.available_methods:
-                self._init_nltk()
-    
-    def _init_nltk(self):
-        """Initialize NLTK sentiment analyzer"""
-        if not NLTK_AVAILABLE:
-            raise ImportError("NLTK is not installed. Run: pip install nltk")
-        
-        # Download required NLTK data (only once)
+    def _init_nltk_simple(self):
+        """Simple NLTK initialization"""
         try:
             nltk.data.find('vader_lexicon')
         except LookupError:
-            print("Downloading NLTK sentiment data...")
             nltk.download('vader_lexicon', quiet=True)
             nltk.download('punkt', quiet=True)
             nltk.download('stopwords', quiet=True)
         
-        self.analyzer = SentimentIntensityAnalyzer()
+        self.analyzers['nltk'] = SentimentIntensityAnalyzer()
+        self.method = "nltk"
+        
         try:
             self.stop_words = set(stopwords.words('english'))
         except:
-            # Fallback if stopwords not available
+            self.stop_words = {'the', 'and', 'for', 'that', 'this', 'with', 'from'}
+    
+    def _check_available_methods(self) -> List[str]:
+        """Check which sentiment analysis methods are available"""
+        try:
+            methods = []
+            
+            if NLTK_AVAILABLE:
+                methods.append("nltk")
+            
+            if TEXTBLOB_AVAILABLE:
+                methods.append("textblob")
+                
+            if VADER_AVAILABLE:
+                methods.append("vader")
+                
+            if AFINN_AVAILABLE:
+                methods.append("afinn")
+                
+            if len(methods) > 1:
+                methods.append("ensemble")
+                methods.append("hybrid")
+            
+            return methods
+        except Exception as e:
+            print(f"Error in _check_available_methods: {e}")
+            return ["regex"]
+    
+    def _initialize_analyzers(self):
+        """Initialize all available sentiment analysis methods"""
+        if "nltk" in self.available_methods:
+            self._init_nltk()
+        
+        if "textblob" in self.available_methods:
+            self._init_textblob()
+            
+        if "vader" in self.available_methods:
+            self._init_vader()
+            
+        if "afinn" in self.available_methods:
+            self._init_afinn()
+            
+        # If no analyzers available, raise error
+        if not self.analyzers:
+            raise RuntimeError("No sentiment analysis methods available. Please install required libraries.")
+    
+    def _init_nltk(self):
+        """Initialize advanced NLTK sentiment analyzer"""
+        if not NLTK_AVAILABLE:
+            return
+        
+        # Download required NLTK data
+        datasets = [
+            ('vader_lexicon', 'vader_lexicon'),
+            ('punkt', 'tokenizers/punkt'),
+            ('stopwords', 'corpora/stopwords'),
+            ('averaged_perceptron_tagger', 'taggers/averaged_perceptron_tagger'),
+            ('wordnet', 'corpora/wordnet'),
+            ('omw-1.4', 'corpora/omw-1.4'),
+        ]
+        
+        for dataset_name, dataset_path in datasets:
+            try:
+                nltk.data.find(dataset_path)
+            except LookupError:
+                try:
+                    nltk.download(dataset_name, quiet=True)
+                except:
+                    pass
+        
+        self.analyzers['nltk'] = SentimentIntensityAnalyzer()
+        
+        try:
+            self.stop_words = set(stopwords.words('english'))
+        except:
             self.stop_words = {'the', 'and', 'for', 'that', 'this', 'with', 'from', 'have', 'will', 'your', 'what', 'when', 'where', 'which', 'their', 'would', 'there', 'could', 'should', 'after', 'before', 'just', 'about', 'into', 'some', 'them', 'other', 'than', 'then', 'also', 'been', 'only', 'very', 'over', 'such', 'being', 'through'}
     
     def _init_textblob(self):
         """Initialize TextBlob sentiment analyzer"""
         if not TEXTBLOB_AVAILABLE:
-            raise ImportError("TextBlob is not installed. Run: pip install textblob")
-        
-        # TextBlob doesn't need explicit initialization
-        self.method = "textblob"
+            return
+        self.analyzers['textblob'] = True
+    
+    def _init_vader(self):
+        """Initialize standalone VADER analyzer"""
+        if not VADER_AVAILABLE:
+            return
+        self.analyzers['vader'] = VaderAnalyzer()
+    
+    def _init_afinn(self):
+        """Initialize AFINN sentiment analyzer"""
+        if not AFINN_AVAILABLE:
+            return
+        self.analyzers['afinn'] = Afinn()
+    
+    def _load_advanced_components(self):
+        """Load advanced NLP components for enhanced analysis"""
+        if NLTK_AVAILABLE:
+            try:
+                self.lemmatizer = WordNetLemmatizer()
+            except:
+                pass
+    
+    def _build_custom_lexicon(self):
+        """Build custom sentiment lexicon with domain-specific terms"""
+        # Enhanced lexicon for better sentiment detection
+        self.custom_lexicon.update({
+            # Intensifiers
+            'absolutely': 1.5, 'completely': 1.3, 'totally': 1.3, 'extremely': 1.8,
+            'incredibly': 1.5, 'amazingly': 1.4, 'perfectly': 1.2, 'exactly': 1.1,
+            
+            # Diminishers  
+            'slightly': -0.3, 'somewhat': -0.2, 'kind of': -0.3, 'sort of': -0.3,
+            'rather': -0.2, 'pretty': -0.1, 'fairly': -0.2,
+            
+            # Contextual sentiment
+            'finally': 0.3, 'unfortunately': -0.8, 'hopefully': 0.6, 'obviously': 0.2,
+            'surprisingly': 0.4, 'apparently': -0.1, 'definitely': 0.5,
+            
+            # Modern expressions
+            'lit': 1.2, 'fire': 1.1, 'sick': 0.8, 'dope': 0.9, 'tight': 0.7,
+            'cringe': -1.1, 'sus': -0.6, 'cap': -0.4, 'based': 0.8,
+        })
     
     def analyze_message(self, message: Message) -> SentimentScore:
         """
@@ -159,45 +272,32 @@ class SentimentAnalyzer:
         text = message.text
         
         if not text or len(text.strip()) < 3:
-            # Return neutral for very short or empty messages
-            return SentimentScore(
-                compound=0.0,
-                positive=0.0,
-                negative=0.0,
-                neutral=1.0,
-                confidence=0.0,
-                method="none"
-            )
+            return SentimentScore(0.0, 0.0, 0.0, 1.0, 0.0, "none")
         
         # Clean text
-        text = self._clean_text(text)
+        text = self._clean_text_simple(text)
         
-        # Analyze based on available method
-        if self.analyzer:  # NLTK
-            return self._analyze_with_nltk(text)
-        elif TEXTBLOB_AVAILABLE:
-            return self._analyze_with_textblob(text)
+        # Analyze based on method
+        if self.method == "nltk" and 'nltk' in self.analyzers:
+            return self._analyze_with_nltk_simple(text)
+        elif self.method == "textblob" and TEXTBLOB_AVAILABLE:
+            return self._analyze_with_textblob_simple(text)
         else:
-            return self._analyze_with_regex(text)  # Fallback
+            return self._analyze_with_regex(text)
     
-    def _clean_text(self, text: str) -> str:
-        """Clean text for sentiment analysis"""
+    def _clean_text_simple(self, text: str) -> str:
+        """Simple text cleaning"""
         # Remove URLs
         text = re.sub(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', '', text)
-        
-        # Remove mentions (for social media text)
+        # Remove mentions
         text = re.sub(r'@\w+', '', text)
-        
         # Remove excessive punctuation but keep emoticons
         text = re.sub(r'([!?.]){3,}', r'\1', text)
-        
         return text.strip()
     
-    def _analyze_with_nltk(self, text: str) -> SentimentScore:
-        """Analyze sentiment using NLTK VADER"""
-        scores = self.analyzer.polarity_scores(text)
-        
-        # Calculate confidence based on the strength of sentiment
+    def _analyze_with_nltk_simple(self, text: str) -> SentimentScore:
+        """Simple NLTK VADER analysis"""
+        scores = self.analyzers['nltk'].polarity_scores(text)
         confidence = abs(scores['compound'])
         
         return SentimentScore(
@@ -205,19 +305,16 @@ class SentimentAnalyzer:
             positive=scores['pos'],
             negative=scores['neg'],
             neutral=scores['neu'],
-            confidence=min(confidence * 1.5, 1.0),  # Scale confidence
+            confidence=min(confidence * 1.5, 1.0),
             method="nltk"
         )
     
-    def _analyze_with_textblob(self, text: str) -> SentimentScore:
-        """Analyze sentiment using TextBlob"""
+    def _analyze_with_textblob_simple(self, text: str) -> SentimentScore:
+        """Simple TextBlob analysis"""
         blob = TextBlob(text)
-        
-        # TextBlob polarity ranges from -1 to 1
         polarity = blob.sentiment.polarity
         subjectivity = blob.sentiment.subjectivity
         
-        # Convert to our format
         if polarity > 0:
             positive = polarity
             negative = 0
@@ -235,6 +332,302 @@ class SentimentAnalyzer:
             confidence=subjectivity,
             method="textblob"
         )
+    
+    def _advanced_text_preprocessing(self, text: str) -> str:
+        """Advanced text preprocessing for enhanced sentiment analysis"""
+        # Preserve emoticons and emojis first
+        emoticons = re.findall(r'[:\;\=][oO\-\^]?[\)\(\]\[\{\}pPdDxX/\\3<>|*]', text)
+        emoji_pattern = re.compile("[\U00010000-\U0010ffff]", flags=re.UNICODE)
+        emojis = emoji_pattern.findall(text)
+        
+        # Clean text while preserving sentiment indicators
+        text = re.sub(r'http[s]?://\S+', ' URL ', text)  # Replace URLs with token
+        text = re.sub(r'@\w+', ' MENTION ', text)  # Replace mentions
+        text = re.sub(r'#(\w+)', r'\1', text)  # Convert hashtags to words
+        
+        # Normalize repeated characters (but preserve sentiment intensity)
+        text = re.sub(r'(.)\1{2,}', r'\1\1', text)  # Max 2 repetitions
+        
+        # Handle contractions
+        contractions = {
+            "n't": " not", "'re": " are", "'ve": " have", "'ll": " will",
+            "'d": " would", "'m": " am", "can't": "cannot", "won't": "will not"
+        }
+        for contraction, expansion in contractions.items():
+            text = text.replace(contraction, expansion)
+        
+        # Restore emoticons and emojis
+        text = text + ' ' + ' '.join(emoticons + emojis)
+        
+        return text.strip()
+    
+    def _get_multi_analyzer_scores(self, text: str) -> Dict[str, SentimentScore]:
+        """Get sentiment scores from all available analyzers"""
+        scores = {}
+        
+        if 'nltk' in self.analyzers:
+            scores['nltk'] = self._analyze_with_nltk_advanced(text)
+            
+        if 'vader' in self.analyzers:
+            scores['vader'] = self._analyze_with_vader(text)
+            
+        if 'textblob' in self.analyzers:
+            scores['textblob'] = self._analyze_with_textblob_advanced(text)
+            
+        if 'afinn' in self.analyzers:
+            scores['afinn'] = self._analyze_with_afinn(text)
+        
+        return scores
+    
+    def _analyze_with_nltk_advanced(self, text: str) -> SentimentScore:
+        """Advanced NLTK analysis with custom lexicon and linguistic features"""
+        if 'nltk' not in self.analyzers:
+            return SentimentScore(0, 0, 0, 1, 0, "nltk_unavailable")
+            
+        scores = self.analyzers['nltk'].polarity_scores(text)
+        
+        # Apply custom lexicon modifications
+        custom_boost = self._apply_custom_lexicon(text)
+        scores['compound'] = np.clip(scores['compound'] + custom_boost, -1.0, 1.0)
+        
+        # Recalculate pos/neg based on adjusted compound
+        if scores['compound'] > 0:
+            scores['pos'] = min(scores['pos'] + abs(custom_boost), 1.0)
+        else:
+            scores['neg'] = min(scores['neg'] + abs(custom_boost), 1.0)
+        
+        # Normalize to ensure they sum to 1
+        total = scores['pos'] + scores['neg'] + scores['neu']
+        if total > 0:
+            scores['pos'] /= total
+            scores['neg'] /= total
+            scores['neu'] /= total
+        
+        confidence = min(abs(scores['compound']) * 1.8, 1.0)
+        
+        return SentimentScore(
+            compound=scores['compound'],
+            positive=scores['pos'],
+            negative=scores['neg'],
+            neutral=scores['neu'],
+            confidence=confidence,
+            method="nltk_advanced"
+        )
+    
+    def _analyze_with_vader(self, text: str) -> SentimentScore:
+        """Analyze with standalone VADER"""
+        if 'vader' not in self.analyzers:
+            return SentimentScore(0, 0, 0, 1, 0, "vader_unavailable")
+            
+        scores = self.analyzers['vader'].polarity_scores(text)
+        return SentimentScore(
+            compound=scores['compound'],
+            positive=scores['pos'],
+            negative=scores['neg'],
+            neutral=scores['neu'],
+            confidence=abs(scores['compound']),
+            method="vader"
+        )
+    
+    def _analyze_with_afinn(self, text: str) -> SentimentScore:
+        """Analyze with AFINN lexicon"""
+        if 'afinn' not in self.analyzers:
+            return SentimentScore(0, 0, 0, 1, 0, "afinn_unavailable")
+            
+        score = self.analyzers['afinn'].score(text)
+        # Normalize AFINN score (-5 to +5 range) to compound score (-1 to +1)
+        compound = np.clip(score / 5.0, -1.0, 1.0)
+        
+        if compound > 0:
+            pos, neg = abs(compound), 0
+        else:
+            pos, neg = 0, abs(compound)
+        
+        neu = 1.0 - (pos + neg)
+        
+        return SentimentScore(
+            compound=compound,
+            positive=pos,
+            negative=neg,
+            neutral=max(neu, 0),
+            confidence=min(abs(compound) * 1.2, 1.0),
+            method="afinn"
+        )
+    
+    def _analyze_with_textblob_advanced(self, text: str) -> SentimentScore:
+        """Advanced TextBlob analysis with subjectivity weighting"""
+        if 'textblob' not in self.analyzers:
+            return SentimentScore(0, 0, 0, 1, 0, "textblob_unavailable")
+            
+        blob = TextBlob(text)
+        polarity = blob.sentiment.polarity
+        subjectivity = blob.sentiment.subjectivity
+        
+        # Weight polarity by subjectivity for more accurate sentiment
+        weighted_polarity = polarity * subjectivity
+        
+        if weighted_polarity > 0:
+            positive = abs(weighted_polarity)
+            negative = 0
+        else:
+            positive = 0
+            negative = abs(weighted_polarity)
+        
+        neutral = 1.0 - (positive + negative)
+        
+        # Use subjectivity as confidence - more subjective = more confident
+        confidence = min(subjectivity * 1.5, 1.0)
+        
+        return SentimentScore(
+            compound=weighted_polarity,
+            positive=positive,
+            negative=negative,
+            neutral=max(neutral, 0),
+            confidence=confidence,
+            method="textblob_advanced"
+        )
+    
+    def _apply_custom_lexicon(self, text: str) -> float:
+        """Apply custom lexicon modifications to sentiment score"""
+        boost = 0.0
+        text_lower = text.lower()
+        
+        for term, weight in self.custom_lexicon.items():
+            if term in text_lower:
+                # Count occurrences for repeated emphasis
+                count = text_lower.count(term)
+                boost += weight * count * 0.1  # Scale down the boost
+        
+        return np.clip(boost, -0.5, 0.5)  # Limit boost impact
+    
+    def _apply_linguistic_enhancements(self, text: str, scores: Dict[str, SentimentScore]) -> Dict[str, SentimentScore]:
+        """Apply advanced linguistic analysis to enhance sentiment scores"""
+        enhanced_scores = scores.copy()
+        
+        if not self.enable_advanced or not NLTK_AVAILABLE:
+            return enhanced_scores
+        
+        try:
+            # Get POS tags for context analysis
+            tokens = word_tokenize(text)
+            pos_tags = pos_tag(tokens)
+            
+            # Analyze linguistic patterns
+            linguistic_modifier = self._analyze_linguistic_patterns(tokens, pos_tags)
+            
+            # Apply modifications to all scores
+            for method, score in enhanced_scores.items():
+                modified_compound = np.clip(score.compound * (1 + linguistic_modifier), -1.0, 1.0)
+                
+                # Recalculate components
+                if modified_compound > 0:
+                    new_pos = min(score.positive * (1 + abs(linguistic_modifier)), 1.0)
+                    new_neg = score.negative
+                else:
+                    new_pos = score.positive
+                    new_neg = min(score.negative * (1 + abs(linguistic_modifier)), 1.0)
+                
+                new_neu = max(1.0 - (new_pos + new_neg), 0)
+                
+                enhanced_scores[method] = SentimentScore(
+                    compound=modified_compound,
+                    positive=new_pos,
+                    negative=new_neg,
+                    neutral=new_neu,
+                    confidence=min(score.confidence * 1.2, 1.0),
+                    method=f"{method}_enhanced"
+                )
+        
+        except Exception:
+            # If linguistic analysis fails, return original scores
+            pass
+        
+        return enhanced_scores
+    
+    def _analyze_linguistic_patterns(self, tokens: list, pos_tags: list) -> float:
+        """Analyze linguistic patterns for sentiment modification"""
+        modifier = 0.0
+        
+        # Count sentiment-affecting POS patterns
+        adjective_count = sum(1 for _, pos in pos_tags if pos.startswith('JJ'))
+        adverb_count = sum(1 for _, pos in pos_tags if pos.startswith('RB'))
+        
+        # More descriptive language = higher confidence
+        if len(tokens) > 0:
+            descriptive_ratio = (adjective_count + adverb_count) / len(tokens)
+            modifier += descriptive_ratio * 0.2
+        
+        # Look for negation patterns
+        negation_words = {'not', 'no', 'never', 'nothing', 'nowhere', 'neither', 'nobody'}
+        negation_count = sum(1 for token, _ in pos_tags if token.lower() in negation_words)
+        
+        if negation_count > 0:
+            # Reduce confidence for negated statements
+            modifier -= negation_count * 0.1
+        
+        return np.clip(modifier, -0.3, 0.3)
+    
+    def _ensemble_sentiment(self, scores: Dict[str, SentimentScore], text: str) -> SentimentScore:
+        """Combine multiple sentiment scores using weighted ensemble"""
+        if not scores:
+            return SentimentScore(0, 0, 0, 1, 0, "ensemble_empty")
+        
+        # Define method weights based on reliability
+        method_weights = {
+            'nltk_advanced': 0.35,
+            'vader': 0.30,
+            'textblob_advanced': 0.20,
+            'afinn': 0.15
+        }
+        
+        weighted_compound = 0
+        weighted_positive = 0
+        weighted_negative = 0
+        weighted_neutral = 0
+        weighted_confidence = 0
+        total_weight = 0
+        
+        for method, score in scores.items():
+            base_method = method.replace('_enhanced', '').replace('_advanced', '')
+            weight = method_weights.get(base_method, 0.1)
+            
+            # Boost weight for higher confidence scores
+            confidence_boost = score.confidence * 0.5
+            final_weight = weight * (1 + confidence_boost)
+            
+            weighted_compound += score.compound * final_weight
+            weighted_positive += score.positive * final_weight
+            weighted_negative += score.negative * final_weight
+            weighted_neutral += score.neutral * final_weight
+            weighted_confidence += score.confidence * final_weight
+            total_weight += final_weight
+        
+        if total_weight > 0:
+            final_compound = weighted_compound / total_weight
+            final_positive = weighted_positive / total_weight
+            final_negative = weighted_negative / total_weight
+            final_neutral = weighted_neutral / total_weight
+            final_confidence = min(weighted_confidence / total_weight, 1.0)
+        else:
+            return SentimentScore(0, 0, 0, 1, 0, "ensemble_failed")
+        
+        return SentimentScore(
+            compound=np.clip(final_compound, -1.0, 1.0),
+            positive=min(final_positive, 1.0),
+            negative=min(final_negative, 1.0),
+            neutral=min(final_neutral, 1.0),
+            confidence=final_confidence,
+            method="ensemble"
+        )
+    
+    def _select_best_method(self, scores: Dict[str, SentimentScore]) -> str:
+        """Select the best single method based on confidence and availability"""
+        if not scores:
+            return "regex"
+        
+        # Prefer methods with higher confidence
+        best_method_name = max(scores.keys(), key=lambda method: scores[method].confidence)
+        return best_method_name
     
     def _analyze_with_regex(self, text: str) -> SentimentScore:
         """Basic regex-based sentiment analysis as ultimate fallback"""
@@ -482,8 +875,10 @@ class SentimentAnalyzer:
     
     def estimate_processing_time(self, message_count: int) -> float:
         """Estimate processing time in seconds for given number of messages"""
-        # Rough estimates based on method
-        if self.analyzer:  # NLTK
+        # Simple estimates based on method
+        if self.method == "nltk":
             return message_count * 0.01  # ~10ms per message
+        elif self.method == "textblob":
+            return message_count * 0.008  # ~8ms per message
         else:
-            return message_count * 0.005  # ~5ms per message for simple methods
+            return message_count * 0.005  # ~5ms per message for regex
