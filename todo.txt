@@ -1,3 +1,1 @@
-WISHFUL:
-
-ALL COMPLETE THUSFAR
+Can MM handle text messages that contain commas?
