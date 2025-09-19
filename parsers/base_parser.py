@@ -100,6 +100,16 @@ class BaseParser(ABC):
         
         return max(sender_counts.keys(), key=lambda x: sender_counts[x])
     
+    def is_message_from_primary(self, message: Message, conversation: Conversation) -> bool:
+        """
+        Determine if a message is from the primary user (account owner).
+        This method can be overridden by specific parsers for custom logic.
+        
+        Default implementation compares with get_primary_sender result.
+        """
+        primary_sender = self.get_primary_sender(conversation)
+        return message.sender_id == primary_sender
+    
     def format_timestamp(self, timestamp: datetime, format_type: str = 'short') -> str:
         """
         Format timestamp for display

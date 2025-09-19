@@ -1431,7 +1431,8 @@ class ModernMessageViewer(QMainWindow):
                 highlight_messages = {msg.id for msg in matches}
             
             for message in conversation.messages:
-                is_sent = (message.sender_id == primary_sender)
+                # Use the parser's method to determine if message is from primary user
+                is_sent = self.current_parser.is_message_from_primary(message, conversation)
                 
                 # Get timestamp with date and time
                 formatted_time = self.current_parser.format_timestamp(message.timestamp, format_type='long')

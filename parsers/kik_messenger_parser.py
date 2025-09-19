@@ -4,13 +4,22 @@ Kik Messenger parser for CSV exports
 """
 import csv
 from datetime import datetime
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 from collections import defaultdict
 
 from .base_parser import BaseParser, Message, Conversation
 
 class KikMessengerParser(BaseParser):
     """Parser for Kik Messenger CSV export files"""
+
+    def __init__(self):
+        super().__init__()
+        # Configuration for account owner - can be set by user
+        self.account_owner = None
+
+    def set_account_owner(self, username: str):
+        """Set which Kik username is the account owner (for proper message direction)"""
+        self.account_owner = username
 
     @property
     def platform_name(self) -> str:
@@ -72,8 +81,9 @@ class KikMessengerParser(BaseParser):
 
         for i, row in enumerate(reader):
             try:
-                sender = row['sender_jid']
-                receiver = row['receiver_jid']
+                # CRITICAL FIX: Use the actual sender and receiver from CSV
+                sender = row['sender_jid']  # This is who SENT the message
+                receiver = row['receiver_jid']  # This is who RECEIVED the message
                 
                 # For group chats, the conversation is with the group jid
                 if row['chat_type'] == 'groupchat':
@@ -95,10 +105,11 @@ class KikMessengerParser(BaseParser):
                     # Fallback for different timestamp formats if necessary
                     timestamp = datetime.now()
 
+                # CRITICAL FIX: DO NOT swap sender/receiver - use them exactly as they are in the CSV
                 message = Message(
                     id=row['msg_id'],
-                    sender_id=sender,
-                    recipient_id=receiver,
+                    sender_id=sender,      # sender_jid from CSV = actual sender
+                    recipient_id=receiver, # receiver_jid from CSV = actual recipient  
                     text=row['msg'],
                     timestamp=timestamp,
                     line_number=i + 2, # 1-based index, plus header
@@ -130,3 +141,49 @@ class KikMessengerParser(BaseParser):
         conversations.sort(key=lambda c: c.messages[0].timestamp if c.messages else datetime.now())
 
         return conversations, file_lines
+    
+    def get_primary_sender(self, conversation: Conversation) -> Optional[str]:
+        """
+        For Kik, we need a smarter way to determine the account owner.
+        Since message count isn't reliable, we'll use multiple heuristics.
+        """
+        if not conversation.messages:
+            return None
+        
+        senders = list(set(msg.sender_id for msg in conversation.messages))
+        
+        # If there are exactly 2 participants, we need to make an educated guess
+        if len(senders) == 2:
+            # Heuristic 1: The sender who appears first chronologically might be more likely to be the account owner
+            # (since they often initiate conversations from their own device)
+            first_message = min(conversation.messages, key=lambda m: m.timestamp)
+            first_sender = first_message.sender_id
+            
+            # Debug info to help troubleshoot
+            print(f"Kik Debug: Conversation participants: {senders}")
+            print(f"Kik Debug: First message from: {first_sender} ('{first_message.text}')")
+            print(f"Kik Debug: Selected as primary sender: {first_sender}")
+            
+            return first_sender
+        
+        # Fallback to default behavior for group chats or edge cases
+        sender_counts = {}
+        for msg in conversation.messages:
+            sender_counts[msg.sender_id] = sender_counts.get(msg.sender_id, 0) + 1
+        
+        primary = max(sender_counts.keys(), key=lambda x: sender_counts[x])
+        print(f"Kik Debug: Using message count fallback, selected: {primary}")
+        return primary
+    
+    def is_message_from_primary(self, message: Message, conversation: Conversation) -> bool:
+        """
+        Override to provide Kik-specific logic for determining message direction.
+        If account_owner is set, use that. Otherwise, fall back to heuristics.
+        """
+        # If user has specified which account is theirs, use that
+        if self.account_owner:
+            return message.sender_id == self.account_owner
+        
+        # Otherwise, use the heuristic-based primary sender detection
+        primary_sender = self.get_primary_sender(conversation)
+        return message.sender_id == primary_sender
